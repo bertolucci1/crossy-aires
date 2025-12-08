@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>CROSSY AIRES</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -17,8 +17,15 @@
     </div>
 
     <div id="menu-screen" class="ui-screen">
-        <h1>CROSSY AIRES</h1>
-        <p class="menu-instruction">Haz clic en un personaje para empezar</p>
+        <div class="menu-header">
+            <h1>CROSSY AIRES</h1>
+            <p id="menu-instruction-text" class="menu-instruction">Selecciona un nivel para empezar</p>
+        </div>
+        <div id="level-select-container">
+            <button id="btn-level-1" class="btn">Nivel 1</button>
+            <button id="btn-level-2" class="btn">Nivel 2</button>
+            <button id="btn-level-3" class="btn">Nivel 3</button>
+        </div>
     </div>
 
     <div id="reward-screen" class="ui-screen hidden">
@@ -29,8 +36,10 @@
             <button id="btn-skin-river" class="btn">Camiseta de River</button>
             <button id="btn-skin-gala" class="btn">Traje de Gala</button>
         </div>
-        <button id="btn-next-level" class="btn">Avanzar al Nivel 2</button>
-        <button id="btn-reset-reward" class="btn restart">Jugar de nuevo</button>
+        <div class="action-buttons">
+            <button id="btn-next-level" class="btn">Avanzar al Nivel 2</button>
+            <button id="btn-reset-reward" class="btn restart">Jugar de nuevo</button>
+        </div>
     </div>
 
     <div id="game-over-screen" class="ui-screen hidden">
@@ -38,7 +47,7 @@
         <button id="btn-reset-gameover" class="btn restart">Intentar de nuevo</button>
     </div>
 
-    <div id="controls">
+    <div id="controls" class="hidden">
         <div class="control-row">
             <button id="btn-forward" class="d-pad">▲</button>
         </div>
@@ -49,10 +58,18 @@
         <div class="control-row">
             <button id="btn-backward" class="d-pad">▼</button>
         </div>
+       </div>
+
+    <!-- Palanca de Zoom -->
+    <div id="zoom-control-container" class="hidden">
+        <span id="zoom-text">ZOOM</span>
+        <input type="range" id="zoom-slider" min="0.5" max="1.5" value="1" step="0.01" orient="vertical">
+        <button id="btn-restart-to-menu" class="btn restart-btn">MENU</button>
     </div>
 
     <!-- Carga de la librería Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="script.js"></script>
+
 </body>
 </html>

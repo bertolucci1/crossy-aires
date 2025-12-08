@@ -76,6 +76,7 @@ function init() {
 
     characterRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     characterRenderer.setSize(window.innerWidth, window.innerHeight);
+    characterRenderer.domElement.className = 'character-canvas'; // Asignar clase para CSS
     const charContainer = document.getElementById('character-container');
     charContainer.appendChild(characterRenderer.domElement);
 
@@ -95,11 +96,9 @@ function init() {
     worldGroup = new THREE.Group();
     scene.add(worldGroup);
 
-    // Generar Mapa y Escenario
+    // Generar Mapa y Escenario para el fondo del menú
     generateMap();
-    generateCityscape();
-    createSupportPillars();
-    
+    generateCityscape(); // Añadir edificios al menú
     // --- Personajes del Menú ---
     menuCerdo = createPigModel();
     menuCerdo.position.set(-50, 0, 0);
@@ -146,10 +145,19 @@ function init() {
 
 // Generador de Mapa
 function generateMap() {
+    if (currentLevel < 3) {
+        generateRichieriMap();
+    } else {
+        generateCiudadUniversitariaMap();
+    }
+}
+
+// Generador para Autopista Richieri (Niveles 1 y 2)
+function generateRichieriMap() {
     let currentZ = 0;
 
     // Suelo de la ciudad (se añade primero para que esté debajo de todo)
-    const cityGroundGeo = new THREE.PlaneGeometry(2500, 5000); // Tamaño grande para cubrir todos los niveles
+    const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000); // Tamaño grande para cubrir todos los niveles
     const cityGroundMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
     const cityGround = new THREE.Mesh(cityGroundGeo, cityGroundMat);
     cityGround.rotation.x = -Math.PI / 2;
@@ -187,7 +195,7 @@ function generateMap() {
         currentZ += CONFIG.laneWidth;
 
         // Añadir cartel de autopista para este tramo
-        createHighwaySign(currentZ - (6 * CONFIG.laneWidth)); // 6 carriles atrás está el centro
+        createHighwaySign(currentZ - CONFIG.laneWidth); // Colocar el cartel en la zona segura
     }
 
     // Añadir barandillas a los lados de la autopista
@@ -196,6 +204,80 @@ function generateMap() {
     createGuardRail(guardRailZ1);
     createGuardRail(guardRailZ2);
 
+    // Generar el paisaje urbano para este nivel
+    generateCityscape();
+}
+
+// Generador para Ciudad Universitaria (Nivel 3+)
+function generateCiudadUniversitariaMap() {
+    let currentZ = 0;
+    
+    // Suelo de pasto verde para el nivel
+    const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000);
+    const cityGroundMat = new THREE.MeshLambertMaterial({ color: CONFIG.colors.grass });
+    const cityGround = new THREE.Mesh(cityGroundGeo, cityGroundMat);
+    cityGround.rotation.x = -Math.PI / 2;
+    cityGround.position.y = -6; // Un poco por debajo de las calles
+    worldGroup.add(cityGround);
+
+    // Zona de inicio (Pasto)
+    createLane(currentZ, 'grass');
+    currentZ += CONFIG.laneWidth;
+
+    // El número de "secciones" de C.U. aumenta con el nivel
+    const cuSections = currentLevel - 2; 
+
+    for (let sectionIndex = 0; sectionIndex < cuSections; sectionIndex++) {
+        const sectionStartZ = currentZ;
+        // --- Av. Leopoldo Lugones --- (Cartel al principio)
+        createHighwaySign(currentZ - CONFIG.laneWidth, "AV. Leopoldo Lugones", 0.9); // Cartel más pequeño
+        for (let i = 0; i < 4; i++) {
+            let speed = (Math.random() * 2 + 2) * 1 * CONFIG.speedFactor;
+            createLane(currentZ, 'road', speed);
+            currentZ += CONFIG.laneWidth;
+        }
+
+        // Añadir un camino peatonal antes de las vías
+        createLane(currentZ, 'grass');
+        currentZ += CONFIG.laneWidth;
+
+        const trainTracksStartZ = currentZ;
+        createTrainTrack(currentZ, 15); // Vía 1, velocidad 15
+        currentZ += CONFIG.laneWidth;
+        createTrainTrack(currentZ, -15); // Vía 2, velocidad -15
+        currentZ += CONFIG.laneWidth;
+
+        // Añadir una estación de tren en cada sección de vías
+        const trainTracksCenterZ = trainTracksStartZ + CONFIG.laneWidth; // Centro entre las 2 vías
+        createTrainStation(trainTracksCenterZ);
+
+        // Añadir el puente peatonal que empieza antes de las vías y cruza Cantilo
+        createPedestrianBridge(trainTracksStartZ - CONFIG.laneWidth, trainTracksStartZ);
+
+        createLane(currentZ, 'grass'); // Pasto después de las vías
+        currentZ += CONFIG.laneWidth;
+
+        // --- Av. Int. Cantilo ---
+        for (let i = 0; i < 4; i++) {
+            let speed = (Math.random() * 2 + 2) * -1 * CONFIG.speedFactor;
+            createLane(currentZ, 'road', speed);
+            currentZ += CONFIG.laneWidth;
+        }
+
+        // Zona de pasto intermedia y cartel de Cantilo
+        createLane(currentZ, 'grass');
+        createHighwaySign(currentZ, "AV. Int Cantilo", 0.9); // Cartel más pequeño
+        currentZ += CONFIG.laneWidth;
+    }
+
+    // Barandillas
+    const guardRailZ1 = 0.5 * CONFIG.laneWidth;
+    const guardRailZ2 = currentZ - 1.5 * CONFIG.laneWidth;
+    createGuardRail(guardRailZ1);
+    createGuardRail(guardRailZ2);
+
+    // Generar el paisaje urbano para este nivel
+    generateCityscape();
 }
 
 // Crear un carril
@@ -219,6 +301,8 @@ function createLane(zPos, type, speed = 0) {
         const border2 = new THREE.Mesh(borderLineGeo, borderLineMat);
         border2.position.set(0, 1, zPos + CONFIG.laneWidth / 2 - 2);
         worldGroup.add(border1, border2);
+
+        lanes.push({ z: zPos, type: type }); // Guardar referencia para la lógica de las líneas
         return; // No necesita más decoración
     }
 
@@ -247,7 +331,171 @@ function createLane(zPos, type, speed = 0) {
                 spawnVehicle(zPos, speed, offset);
             }
         }
+
+        // Guardar referencia del carril para la lógica de las líneas amarillas
+        lanes.push({ z: zPos, type: type });
     }
+}
+
+// Crear vía de tren
+function createTrainTrack(zPos, speed) {
+    // Base de la vía (grava/tierra para evitar el parpadeo de las líneas de la carretera)
+    const trackBedGeo = new THREE.BoxGeometry(2000, 10, CONFIG.laneWidth);
+    const trackBedMat = new THREE.MeshLambertMaterial({ color: 0x6B4F3A }); // Color tierra/grava
+    const trackBed = new THREE.Mesh(trackBedGeo, trackBedMat);
+    trackBed.position.set(0, -5, zPos);
+    trackBed.receiveShadow = true;
+    worldGroup.add(trackBed);
+
+    // Rieles
+    const railGeo = new THREE.BoxGeometry(2000, 2, 4);
+    const railMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
+    
+    const rail1 = new THREE.Mesh(railGeo, railMat);
+    rail1.position.set(0, 1, zPos - 10);
+    worldGroup.add(rail1);
+
+    const rail2 = new THREE.Mesh(railGeo, railMat);
+    rail2.position.set(0, 1, zPos + 10);
+    worldGroup.add(rail2);
+
+    // Durmientes
+    const sleeperGeo = new THREE.BoxGeometry(30, 2, 4);
+    for (let x = -990; x < 1000; x += 20) {
+        const sleeper = new THREE.Mesh(sleeperGeo, trackBedMat);
+        sleeper.position.set(x, 0, zPos);
+        worldGroup.add(sleeper);
+    }
+
+    // Generar un tren para esta vía
+    spawnTrain(zPos, speed, Math.random() * 1800 - 900);
+
+    // Guardar referencia del carril para la lógica de las líneas amarillas
+    lanes.push({ z: zPos, type: 'track' });
+}
+
+// Crear estación de tren para Nivel 3
+function createTrainStation(zPos) {
+    const stationGroup = new THREE.Group();
+
+    // 1. Plataforma
+    const platformGeo = new THREE.BoxGeometry(500, 10, CONFIG.laneWidth * 4); // Más ancha y profunda
+    const platformMat = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
+    const platform = new THREE.Mesh(platformGeo, platformMat);
+    platform.position.set(0, -5.1, zPos); // Ligeramente hundida para evitar z-fighting
+    stationGroup.add(platform);
+
+    // 2. Techo con textura celeste y blanco
+    const roofCanvas = document.createElement('canvas');
+    roofCanvas.width = 256;
+    roofCanvas.height = 256;
+    const roofCtx = roofCanvas.getContext('2d');
+    const stripeHeight = 32;
+    for (let i = 0; i < roofCanvas.height / stripeHeight; i++) {
+        roofCtx.fillStyle = i % 2 === 0 ? '#75AADB' : '#FFFFFF'; // Celeste y Blanco
+        roofCtx.fillRect(0, i * stripeHeight, roofCanvas.width, stripeHeight);
+    }
+    const roofTexture = new THREE.CanvasTexture(roofCanvas);
+    roofTexture.wrapS = THREE.RepeatWrapping;
+    roofTexture.wrapT = THREE.RepeatWrapping;
+    roofTexture.repeat.set(4, 1);
+
+    const roofGeo = new THREE.BoxGeometry(520, 8, 150); // Techo más grande
+    const roofMat = new THREE.MeshLambertMaterial({ map: roofTexture, side: THREE.FrontSide }); // Renderizar solo la cara de arriba
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    roof.position.set(0, 50, zPos);
+    stationGroup.add(roof);
+
+    // 3. Postes de soporte
+    const postGeo = new THREE.CylinderGeometry(4, 4, 50, 8);
+    const postMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+    const postPositions = [-180, 180];
+    postPositions.forEach(x => {
+        const post1 = new THREE.Mesh(postGeo, postMat);
+        post1.position.set(x, 20, zPos + 60);
+        const post2 = new THREE.Mesh(postGeo, postMat);
+        post2.position.set(x, 20, zPos - 60);
+        stationGroup.add(post1, post2);
+    });
+
+    // 4. Cartel de la estación
+    const signCanvas = document.createElement('canvas');
+    signCanvas.width = 512; signCanvas.height = 128;
+    const signCtx = signCanvas.getContext('2d');
+    signCtx.fillStyle = '#003366'; // Azul oscuro
+    signCtx.fillRect(0, 0, signCanvas.width, signCanvas.height);
+    signCtx.fillStyle = 'white';
+    signCtx.font = 'bold 50px Arial';
+    signCtx.textAlign = 'center';
+    signCtx.textBaseline = 'middle';
+    signCtx.fillText('Ciudad Universitaria', signCanvas.width / 2, signCanvas.height / 2);
+    const signTexture = new THREE.CanvasTexture(signCanvas);
+    const signGeo = new THREE.PlaneGeometry(200, 50);
+    const signMesh = new THREE.Mesh(signGeo, new THREE.MeshBasicMaterial({ map: signTexture }));
+    signMesh.position.set(0, 65, zPos - 75); // Sobre el techo, de cara al jugador
+    stationGroup.add(signMesh);
+
+    worldGroup.add(stationGroup);
+}
+
+// Crear puente peatonal para Ciudad Universitaria
+function createPedestrianBridge(zStartPos, tracksZ) {
+    const bridgeGroup = new THREE.Group();
+    const bridgeMat = new THREE.MeshLambertMaterial({ color: 0xcccccc });
+    const railMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    const pillarMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+
+    const floorHeight = 80;
+    const rampLength = 200;
+    const flatLength = CONFIG.laneWidth * 6; // Longitud para cruzar Cantilo y la zona de pasto
+
+    // 1. Marco de entrada celeste
+    const frameMat = new THREE.MeshLambertMaterial({ color: 0x75AADB });
+    const frameBeamGeo = new THREE.BoxGeometry(100, 10, 10);
+    const framePostGeo = new THREE.BoxGeometry(10, floorHeight + 10, 10);
+    
+    const topBeam = new THREE.Mesh(frameBeamGeo, frameMat);
+    topBeam.position.set(0, floorHeight + 5, zStartPos);
+    const post1 = new THREE.Mesh(framePostGeo, frameMat);
+    post1.position.set(-45, floorHeight/2, zStartPos);
+    const post2 = new THREE.Mesh(framePostGeo, frameMat);
+    post2.position.set(45, floorHeight/2, zStartPos);
+    bridgeGroup.add(topBeam, post1, post2);
+
+    // 2. Sección plana sobre la autopista (ahora extendida, sin rampa)
+    const totalBridgeLength = rampLength + flatLength;
+    const flatSectionZ = zStartPos + totalBridgeLength / 2;
+    const flatGeo = new THREE.BoxGeometry(80, 5, totalBridgeLength);
+    const flatSection = new THREE.Mesh(flatGeo, bridgeMat);
+    flatSection.position.set(0, floorHeight, flatSectionZ);
+    bridgeGroup.add(flatSection);
+
+    // 3. Barandillas (ahora cubren toda la longitud)
+    const railGeo = new THREE.BoxGeometry(2, 15, totalBridgeLength);
+    const leftRail = new THREE.Mesh(railGeo, railMat);
+    leftRail.position.set(-38, floorHeight + 5, flatSectionZ);
+    const rightRail = new THREE.Mesh(railGeo, railMat);
+    rightRail.position.set(38, floorHeight + 5, flatSectionZ);
+    bridgeGroup.add(leftRail, rightRail);
+
+    // 4. Pilares de soporte
+    const pillarGeo = new THREE.CylinderGeometry(10, 10, floorHeight, 12);
+    
+    // Pilar después de las vías del tren
+    const pillar1Z = tracksZ + CONFIG.laneWidth * 3;
+    const pillar1 = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar1.position.set(0, floorHeight / 2, pillar1Z);
+    bridgeGroup.add(pillar1);
+
+    // Pilar después de Av. Cantilo
+    const pillar2Z = pillar1Z + CONFIG.laneWidth * 5;
+    const pillar2 = new THREE.Mesh(pillarGeo, pillarMat);
+    pillar2.position.set(0, floorHeight / 2, pillar2Z);
+    bridgeGroup.add(pillar2);
+
+
+    bridgeGroup.position.x = -350; // Mover el puente a un costado de la estación
+    worldGroup.add(bridgeGroup);
 }
 
 // Crear el separador central de la autopista con farolas
@@ -283,7 +531,7 @@ function createMedianStrip(zPos) {
     });
 
     // El suelo del carril central (para que no se vea el pasto)
-    createLane(zPos, 'road');
+    // createLane(zPos, 'road'); // Eliminado para evitar conflicto con las vías
 }
 
 // Crear barandillas laterales
@@ -299,125 +547,101 @@ function createGuardRail(zPos) {
     worldGroup.add(rail);
 }
 
-// Crear pilares de soporte para la autopista elevada
-function createSupportPillars(mapDepth) {
-    const highwayLevel = -10; // Parte inferior de la autopista
-    const groundLevel = -100; // Nivel del suelo de la ciudad
-    const pillarHeight = highwayLevel - groundLevel;
-    const pillarGeo = new THREE.BoxGeometry(40, pillarHeight, 40);
-    const pillarMat = new THREE.MeshLambertMaterial({ color: 0x666666 });
+// --- NUEVO SISTEMA DE EDIFICIOS ---
 
-    // Generar pilares a lo largo de todas las autopistas del nivel
-    for (let z = CONFIG.laneWidth * 2; z < mapDepth; z += CONFIG.laneWidth * 5) {
-        for (let x = -900; x <= 900; x += 180) { // Más pilares
-            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-            pillar.position.set(x, groundLevel + pillarHeight / 2, z);
-            pillar.receiveShadow = true;
-            worldGroup.add(pillar);
-        }
-    }
-}
-
-// Generar edificios simples para el fondo
-function generateCityscape(mapDepth) {
-    // Generar edificios a ambos lados, a lo largo de todo el mapa
-    for (let x = -900; x < 900; x += 100) {
-        // Edificios del inicio (altura normal)
-        createBuilding(x + Math.random() * 50, -150 - Math.random() * 200, 1); 
-        // Edificios del final (más bajos y se alejan con el mapa)
-        createBuilding(x + Math.random() * 50, mapDepth + Math.random() * 200, 0.4); 
-    }
-}
-
-// Crear un edificio detallado
-function createBuilding(x, z, heightMultiplier = 1) {
+// 1. Función para crear un único edificio
+function createBuilding(x, z) {
     const buildingGroup = new THREE.Group();
 
-    const baseHeight = (Math.random() * 150 + 100) * heightMultiplier;
-    const towerHeight = (Math.random() * 300 + 150) * heightMultiplier;
-    const width = Math.random() * 50 + 40;
-    const depth = Math.random() * 50 + 40;
+    // Dimensiones y color aleatorios
+    const height = Math.random() * 150 + 50; // Altura controlada para no molestar la cámara
+    const width = Math.random() * 80 + 60;
+    const depth = Math.random() * 80 + 60;
+    const buildingColors = [0x8B4513, 0xA0522D, 0xBC8F8F, 0x696969, 0x778899];
+    const color = buildingColors[Math.floor(Math.random() * buildingColors.length)];
 
-    // Paleta de colores para los edificios
-    const buildingColors = [0x8B4513, 0xA0522D, 0xD2B48C, 0xBC8F8F, 0x696969, 0x778899, 0x5F9EA0];
-    const randomColor = buildingColors[Math.floor(Math.random() * buildingColors.length)];
-    const towerColor = new THREE.Color(randomColor).multiplyScalar(1.2); // Torre un poco más clara
+    const buildingMat = new THREE.MeshLambertMaterial({ color: color });
+    const buildingGeo = new THREE.BoxGeometry(width, height, depth);
+    const building = new THREE.Mesh(buildingGeo, buildingMat);
 
-    const baseMat = new THREE.MeshLambertMaterial({ color: randomColor });
-    const towerMat = new THREE.MeshLambertMaterial({ color: towerColor });
-    const windowMat = new THREE.MeshBasicMaterial({ color: 0x333333 });
+    building.castShadow = true;
+    buildingGroup.add(building);
 
-    // Base y Torre
-    const base = new THREE.Mesh(new THREE.BoxGeometry(width, baseHeight, depth), baseMat);
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(width * 0.8, towerHeight, depth * 0.8), towerMat);
-    tower.position.y = (baseHeight + towerHeight) / 2;
-    
-    buildingGroup.add(base, tower);
+    // Posicionar el edificio
+    const groundY = currentLevel < 3 ? -100 : -6; // Nivel del suelo según el mapa
+    buildingGroup.position.set(x, groundY + height / 2, z);
 
-    // Ventanas
-    const windowSize = 8;
-    const windowGeo = new THREE.BoxGeometry(windowSize, windowSize, 1);
-    for (let y = 10; y < baseHeight + towerHeight - 10; y += 20) {
-        if (Math.random() > 0.3) { // No todas las ventanas están encendidas
-            const window = new THREE.Mesh(windowGeo, windowMat);
-            // Colocar ventana en la cara frontal (Z+)
-            window.position.set(Math.random() * (width * 0.6) - (width * 0.3), y, depth / 2 + 1);
-            buildingGroup.add(window);
-        }
-    }
-
-    buildingGroup.position.set(x, -100 + baseHeight / 2, z); // Posición base sobre el suelo de la ciudad
-    buildingGroup.castShadow = true;
     worldGroup.add(buildingGroup);
 }
 
+// 2. Función para generar el paisaje urbano a los costados
+function generateCityscape() {
+    // Encontrar los límites Z de la autopista para colocar los edificios a los lados
+    if (lanes.length === 0) return;
+
+    const zPositions = lanes.map(lane => lane.z);
+    const minZ = Math.min(...zPositions);
+    const maxZ = Math.max(...zPositions);
+    const sideOffset = 250; // Distancia desde el borde de la autopista
+
+    // Generar edificios a lo largo del mapa
+    for (let x = -1000; x < 1000; x += 150) { // Generar edificios a lo ancho
+        // Lado "antes" de la autopista (cerca del jugador)
+        createBuilding(x + Math.random() * 100, minZ - sideOffset - Math.random() * 300);
+        // Lado "después" de la autopista (lejos del jugador)
+        createBuilding(x + Math.random() * 100, maxZ + sideOffset + Math.random() * 300);
+    }
+}
 
 // Crear cartel de autopista
-function createHighwaySign(zPos) {
-    // Crear textura con Canvas (se reutiliza para ambos carteles)
+function createHighwaySign(zPos, text = 'AU. Richieri', scale = 1) {
+    const signStructure = new THREE.Group();
+
+    // --- Textura del Cartel ---
     const canvas = document.createElement('canvas');
-    if (!canvas) return; // Safety check
     const context = canvas.getContext('2d');
     canvas.width = 512;
     canvas.height = 128;
     context.fillStyle = '#006A4E'; // Verde de cartel de autopista
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = 'white';
-    context.font = 'bold 60px Arial';
+
+    // Ajustar tamaño de fuente según la longitud del texto
+    let fontSize = 55;
+    if (text.length > 18) {
+        fontSize = 45; // Usar una fuente más pequeña para textos muy largos
+    }
+    context.font = `bold ${fontSize}px Arial`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText('AU. Richieri', canvas.width / 2, canvas.height / 2);
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
     const texture = new THREE.CanvasTexture(canvas);
 
-    // Posiciones X para los dos carteles
-    const positionsX = [300, -300];
+    // --- Geometrías y Materiales (reutilizables) ---
+    const signMaterial = new THREE.MeshBasicMaterial({ map: texture });
+    const signGeometry = new THREE.PlaneGeometry(400 * scale, 75 * scale);
+    const postGeo = new THREE.CylinderGeometry(8 * scale, 8 * scale, 120 * scale, 12);
+    const postMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
+    const beamGeo = new THREE.BoxGeometry(450 * scale, 10 * scale, 10 * scale);
 
-    positionsX.forEach(posX => {
-        const signStructure = new THREE.Group();
+    // --- Construcción del Pórtico ---
+    // Postes verticales
+    const postLeft = new THREE.Mesh(postGeo, postMat);
+    postLeft.position.set(-220 * scale, 50 * scale, 0);
+    const postRight = new THREE.Mesh(postGeo, postMat);
+    postRight.position.set(220 * scale, 50 * scale, 0);
 
-        // Cartel
-        const signMaterial = new THREE.MeshBasicMaterial({ map: texture });
-        const signGeometry = new THREE.PlaneGeometry(250, 60); // Cartel más grande
-        const signMesh = new THREE.Mesh(signGeometry, signMaterial);
-        signMesh.position.y = 60;
-        signStructure.add(signMesh);
+    // Viga horizontal
+    const beam = new THREE.Mesh(beamGeo, postMat);
+    beam.position.y = 120 * scale; // Subir la viga para que no atraviese el cartel
 
-        // Postes del cartel
-        const postGeo = new THREE.CylinderGeometry(5, 5, 70, 8);
-        const postMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
-        
-        const post1 = new THREE.Mesh(postGeo, postMat);
-        post1.position.set(-140, 25, 0); // Pilar izquierdo
-        signStructure.add(post1);
+    // El cartel en sí, colgando de la viga
+    const signMesh = new THREE.Mesh(signGeometry, signMaterial);
+    signMesh.position.y = 80 * scale; // Bajar el cartel para que cuelgue de la viga
 
-        const post2 = new THREE.Mesh(postGeo, postMat);
-        post2.position.set(140, 25, 0); // Pilar derecho
-        signStructure.add(post2);
-
-        // Posicionar la estructura completa sobre la autopista
-        signStructure.position.set(posX, 0, zPos); // Centrado en Z de la autopista actual
-        worldGroup.add(signStructure);
-    });
+    signStructure.add(postLeft, postRight, beam, signMesh);
+    signStructure.position.set(0, 0, zPos); // Centrado en X, en la Z de la senda peatonal
+    worldGroup.add(signStructure);
 }
 
 
@@ -463,6 +687,41 @@ function spawnVehicle(z, speed, xOffset) {
     
     worldGroup.add(vehicleGroup);
     vehicles.push(vehicleGroup);
+}
+
+// Crear Tren
+function spawnTrain(z, speed, xOffset) {
+    const trainGroup = new THREE.Group();
+    let trainColor = 0xAAAAAA; // Gris por defecto
+    let wagonColor = 0x888888; // Gris oscuro por defecto
+
+    // Colores especiales para el Nivel 3
+    if (currentLevel >= 3) {
+        trainColor = 0x75AADB; // Celeste
+        wagonColor = 0xFFFFFF; // Blanco
+    }
+
+    const trainMat = new THREE.MeshLambertMaterial({ color: trainColor });
+
+    // Locomotora
+    const engineGeo = new THREE.BoxGeometry(80, 30, 25);
+    const engine = new THREE.Mesh(engineGeo, trainMat);
+    engine.position.set(speed > 0 ? -45 : 45, 15, 0); // La locomotora siempre va adelante
+    engine.castShadow = true;
+    trainGroup.add(engine);
+
+    // Vagones (simples)
+    for (let i = 0; i < 3; i++) {
+        const wagonGeo = new THREE.BoxGeometry(100, 25, 25);
+        const wagon = new THREE.Mesh(wagonGeo, new THREE.MeshLambertMaterial({ color: wagonColor }));
+        wagon.position.set((speed > 0 ? i * 110 : -i * 110), 12.5, 0);
+        trainGroup.add(wagon);
+    }
+
+    trainGroup.position.set(xOffset, 0, z);
+    trainGroup.userData = { speed: speed, width: 450, depth: 25 }; // Ancho total aproximado
+    worldGroup.add(trainGroup);
+    vehicles.push(trainGroup); // Los trenes también son "vehículos" para la colisión
 }
 
 // --- CONTADOR DE MONEDAS ---
@@ -732,7 +991,13 @@ function updateCamera() {
 
 function checkGameState() {
     // Chequear victoria
-    if (player.position.z >= (currentLevel * 10 * CONFIG.laneWidth)) {
+    let winZ;
+    if (currentLevel < 3) {
+        winZ = currentLevel * 10 * CONFIG.laneWidth;
+    } else {
+        winZ = ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth; // 12 carriles por sección de C.U.
+    }
+    if (player.position.z >= winZ) {
         winGame();
     }
     // Chequear si se cae
@@ -785,6 +1050,13 @@ function setupRaycasting() {
     function handleInteraction(x, y) {
         if (!inMenu) return; // Solo funciona en el menú
  
+        // IMPORTANTE: Chequear si el clic fue en un botón de la UI antes de procesar el raycast.
+        // Esto evita que el canvas de los personajes "robe" los clics de los botones.
+        const clickedElement = document.elementFromPoint(x, y);
+        if (clickedElement && clickedElement.tagName === 'BUTTON') {
+            return; // Si se hizo clic en un botón, no hacer nada más aquí.
+        }
+
         // Normalizar coordenadas del mouse/touch (-1 a +1)
         mouse.x = (x / window.innerWidth) * 2 - 1;
         mouse.y = - (y / window.innerHeight) * 2 + 1;
@@ -821,11 +1093,29 @@ function setupRaycasting() {
 function setupUI() {
     document.getElementById('btn-skin-boca').addEventListener('click', () => applySkin('camiseta_futbol'));
     document.getElementById('btn-skin-river').addEventListener('click', () => applySkin('camiseta_river'));
-    document.getElementById('btn-skin-gala').addEventListener('click', () => applySkin('smoking'));
+    document.getElementById('btn-skin-gala').addEventListener('click', () => applySkin('gala'));
     document.getElementById('btn-next-level').addEventListener('click', goToNextLevel);
     document.getElementById('btn-reset-reward').addEventListener('click', resetGame);
+    document.getElementById('btn-restart-to-menu').addEventListener('click', () => resetGame(false));
     document.getElementById('btn-reset-gameover').addEventListener('click', resetGame);
+
+    document.getElementById('btn-level-1').addEventListener('click', () => selectLevel(1));
+    document.getElementById('btn-level-2').addEventListener('click', () => selectLevel(2));
+    document.getElementById('btn-level-3').addEventListener('click', () => selectLevel(3));
+
+    const zoomSlider = document.getElementById('zoom-slider');
+    zoomSlider.addEventListener('input', (event) => {
+        camera.zoom = parseFloat(event.target.value);
+        camera.updateProjectionMatrix();
+    });
 }
+
+function selectLevel(level) {
+    currentLevel = level;
+    document.getElementById('level-select-container').classList.add('hidden');
+    document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
+}
+
 
 // Helper para reproducir sonidos
 function playSound(sound) {
@@ -839,6 +1129,20 @@ function playSound(sound) {
     }
 }
 
+// Nueva función para limpiar y construir el mundo según el nivel
+function setupWorldForLevel() {
+    // 1. Limpiar completamente el mundo del juego
+    while(worldGroup.children.length > 0){ 
+        worldGroup.remove(worldGroup.children[0]); 
+    }
+    vehicles = [];
+    lanes = [];
+
+    // 2. Regenerar el mapa y el escenario para el nivel actual
+    const mapDepth = currentLevel < 3 ? currentLevel * 10 * CONFIG.laneWidth : ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth;
+    generateMap();
+}
+
 
 // Gestión del Flujo del Juego
 function startGame(animal) {
@@ -847,6 +1151,9 @@ function startGame(animal) {
     currentAnimalType = animal;
     document.getElementById('menu-screen').classList.add('hidden');
     document.getElementById('character-container').classList.add('hidden');
+    document.getElementById('zoom-control-container').classList.remove('hidden');
+    document.getElementById('controls').classList.remove('hidden');
+    document.getElementById('btn-restart-to-menu').classList.remove('hidden');
 
     if (backgroundMusic && backgroundMusic.buffer && !backgroundMusic.isPlaying) {
         backgroundMusic.play();
@@ -854,6 +1161,9 @@ function startGame(animal) {
 
     // El worldGroup ya es visible, no hace falta cambiarlo.
     // Los personajes del menú se ocultan al ocultar su contenedor.
+
+    // Limpiar y generar el mundo correcto para el nivel seleccionado
+    setupWorldForLevel();
 
     createPlayer(animal);
     isGameOver = false;
@@ -864,6 +1174,9 @@ function fallOff() {
     playSound(fallSound);
     document.getElementById('game-over-screen').querySelector('h2').textContent = "¡TE CAÍSTE!"; // Mensaje específico
     document.getElementById('game-over-screen').classList.remove('hidden');
+    document.getElementById('zoom-control-container').classList.add('hidden');
+    document.getElementById('controls').classList.add('hidden');
+    document.getElementById('btn-restart-to-menu').classList.add('hidden');
     isGameOver = true;
     cancelAnimationFrame(animationId);
 }
@@ -872,6 +1185,9 @@ function gameOver() {
     playSound(collisionSound);
     document.getElementById('game-over-screen').querySelector('h2').textContent = "¡TE CHOCARON!"; // Mensaje específico
     isGameOver = true;
+    document.getElementById('zoom-control-container').classList.add('hidden');
+    document.getElementById('controls').classList.add('hidden');
+    document.getElementById('btn-restart-to-menu').classList.add('hidden');
     document.getElementById('game-over-screen').classList.remove('hidden');
     cancelAnimationFrame(animationId);
 }
@@ -898,6 +1214,10 @@ function winGame() {
     // Actualizar el texto del botón del siguiente nivel
     document.getElementById('btn-next-level').textContent = `Avanzar al Nivel ${currentLevel + 1}`;
 
+    document.getElementById('character-container').classList.add('hidden'); // Ocultar personajes del menú
+    document.getElementById('zoom-control-container').classList.add('hidden');
+    document.getElementById('controls').classList.add('hidden');
+    document.getElementById('btn-restart-to-menu').classList.add('hidden');
     document.getElementById('reward-screen').classList.remove('hidden');
     cancelAnimationFrame(animationId);
 }
@@ -913,6 +1233,13 @@ function applySkin(skinName) {
 }
 
 function resetGame(isNextLevel = false) {
+    // Si no estamos avanzando de nivel, volvemos al menú principal
+    if (!isNextLevel) {
+        // Esto es un simple F5, pero podríamos hacer una función más elegante
+        // que no recargue toda la página. Por ahora, es lo más simple.
+        window.location.reload();
+        return;
+    }
     // 1. Limpiar completamente el mundo del juego
     while(worldGroup.children.length > 0){ 
         worldGroup.remove(worldGroup.children[0]); 
@@ -921,13 +1248,18 @@ function resetGame(isNextLevel = false) {
     lanes = [];
 
     // 2. Regenerar el mapa y el escenario para el nivel actual
+    const mapDepth = currentLevel < 3 ? currentLevel * 10 * CONFIG.laneWidth : ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth;
     generateMap();
-    generateCityscape(currentLevel * 10 * CONFIG.laneWidth);
-    createSupportPillars(currentLevel * 10 * CONFIG.laneWidth);
 
     document.getElementById('reward-screen').classList.add('hidden');
     document.getElementById('game-over-screen').querySelector('h2').textContent = "¡JUEGO TERMINADO!"; // Resetea el mensaje
     document.getElementById('game-over-screen').classList.add('hidden');
+    
+    // Resetear y mostrar el slider de zoom
+    document.getElementById('zoom-slider').value = 1; // Resetea el valor
+    camera.zoom = 1; // Resetea el zoom de la cámara
+    document.getElementById('controls').classList.remove('hidden');
+    document.getElementById('zoom-control-container').classList.remove('hidden');
 
     // 1. Resetear posiciones
     targetPosition = { x: 0, z: 0 };
@@ -956,7 +1288,7 @@ function resetGame(isNextLevel = false) {
         bocaShirt.visible = true;
     } else if (equippedSkin === 'camiseta_river' && riverShirt) {
         riverShirt.visible = true;
-    } else if (equippedSkin === 'smoking' && body) {
+    } else if (equippedSkin === 'gala' && body) {
         body.material.color.setHex(0x000000);
     }
     
