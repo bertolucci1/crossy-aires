@@ -27,6 +27,7 @@ let animationId;
 let menuAnimationId;
 let backgroundMusic;
 let currentLevel = 1;
+let isTestWorld = false;
 let playerCoins = 0;
 let isGameOver = false;
 let isFalling = false;
@@ -145,10 +146,74 @@ function init() {
 
 // Generador de Mapa
 function generateMap() {
-    if (currentLevel < 3) {
+    if (isTestWorld) {
+        generateTestWorld();
+    } else if (currentLevel < 3) {
         generateRichieriMap();
     } else {
         generateCiudadUniversitariaMap();
+    }
+}
+
+// Mundo de prueba: autopista del mundo 3, sin autos, trenes ni edificios
+function generateTestWorld() {
+    let currentZ = 0;
+    // Suelo de pasto verde para el nivel
+    const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000);
+    const cityGroundMat = new THREE.MeshLambertMaterial({ color: CONFIG.colors.grass });
+    const cityGround = new THREE.Mesh(cityGroundGeo, cityGroundMat);
+    cityGround.rotation.x = -Math.PI / 2;
+    cityGround.position.y = -6;
+    worldGroup.add(cityGround);
+
+    // Zona de inicio (Pasto)
+    createLane(currentZ, 'grass');
+    currentZ += CONFIG.laneWidth;
+
+    // Simular una sección de autopista (como mundo 3, pero sin autos ni trenes)
+    for (let i = 0; i < 4; i++) {
+        createLane(currentZ, 'road', 0); // velocidad 0 = sin autos
+        currentZ += CONFIG.laneWidth;
+    }
+    createLane(currentZ, 'grass');
+    currentZ += CONFIG.laneWidth;
+    for (let i = 0; i < 4; i++) {
+        createLane(currentZ, 'road', 0);
+        currentZ += CONFIG.laneWidth;
+    }
+    createLane(currentZ, 'grass');
+    currentZ += CONFIG.laneWidth;
+
+    // Barandillas laterales
+    const guardRailZ1 = 0.5 * CONFIG.laneWidth;
+    const guardRailZ2 = currentZ - 1.5 * CONFIG.laneWidth;
+    createGuardRail(guardRailZ1);
+    createGuardRail(guardRailZ2);
+    // No edificios, no trenes, no autos
+
+    // Cargar modelo FBX de prueba
+    if (typeof THREE.FBXLoader !== 'undefined') {
+        const loader = new THREE.FBXLoader();
+        loader.load('models/monumental2.fbx', function (object) {
+            console.log("Modelo FBX cargado. Añadiendo a la escena...", object);
+
+            // --- Pasos de Depuración ---
+            // 1. Añadir un ayudante de ejes para ver la orientación y el pivote del objeto.
+            const axesHelper = new THREE.AxesHelper(100); // Reducimos el tamaño de los ejes para que coincida con la nueva escala.
+            object.add(axesHelper);
+
+            // 2. Ajustar posición y escala según lo solicitado.
+            // Lo situamos detrás del personaje, en el borde del mapa, y lo hacemos mucho más grande.
+            object.position.set(0, 10, -500); // x=0 (centrado), y=10 (un poco elevado), z=-200 (detrás del jugador)
+            object.scale.set(0.2, 0.2, 0.2); // Reducimos la escala. ¡Puedes seguir cambiando este valor si quieres (ej: 0.1, 0.5, etc.)!
+
+            worldGroup.add(object);
+
+        }, undefined, function (error) {
+            console.error('Error al cargar monumental2.fbx:', error);
+        });
+    } else {
+        console.warn('FBXLoader no está disponible.');
     }
 }
 
@@ -1102,6 +1167,7 @@ function setupUI() {
     document.getElementById('btn-level-1').addEventListener('click', () => selectLevel(1));
     document.getElementById('btn-level-2').addEventListener('click', () => selectLevel(2));
     document.getElementById('btn-level-3').addEventListener('click', () => selectLevel(3));
+    document.getElementById('btn-test-world').addEventListener('click', () => selectTestWorld());
 
     const zoomSlider = document.getElementById('zoom-slider');
     zoomSlider.addEventListener('input', (event) => {
@@ -1111,9 +1177,21 @@ function setupUI() {
 }
 
 function selectLevel(level) {
+    isTestWorld = false;
     currentLevel = level;
     document.getElementById('level-select-container').classList.add('hidden');
     document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
+}
+
+function selectTestWorld() {
+    const userCode = prompt("Ingresa el código para acceder al mapa de pruebas:");
+    if (userCode === "1234") {
+        isTestWorld = true;
+        document.getElementById('level-select-container').classList.add('hidden');
+        document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
+    } else if (userCode !== null) { // Si el usuario escribió algo pero es incorrecto
+        alert("Código incorrecto.");
+    }
 }
 
 

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "three-fbx-loader": "^1.0.3"
+  }
+}

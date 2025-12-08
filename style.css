@@ -155,6 +155,7 @@ h2 { font-size: 2rem; text-shadow: 2px 2px #000; }
 /* Palanca de Zoom */
 .zoom-slider {
     -webkit-appearance: slider-vertical; /* Para navegadores WebKit */
+    appearance: slider-vertical; /* Propiedad estándar para compatibilidad */
     writing-mode: bt-lr; /* Para Firefox */
     width: 50px; /* Un poco más grande */
     height: 180px; /* Un poco más grande */
