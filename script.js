@@ -781,32 +781,40 @@ function setupControls() {
 function setupRaycasting() {
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
-
-    window.addEventListener('mousedown', (event) => {
+ 
+    function handleInteraction(x, y) {
         if (!inMenu) return; // Solo funciona en el menú
-
-        // Normalizar coordenadas del mouse (-1 a +1)
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-
+ 
+        // Normalizar coordenadas del mouse/touch (-1 a +1)
+        mouse.x = (x / window.innerWidth) * 2 - 1;
+        mouse.y = - (y / window.innerHeight) * 2 + 1;
+ 
         raycaster.setFromCamera(mouse, characterCamera); // Usar la cámara de los personajes
-
+ 
         const intersects = raycaster.intersectObjects([menuCerdo, menuGallina], true);
-
+ 
         if (intersects.length > 0) {
             let clickedObject = intersects[0].object;
             // Subir en la jerarquía hasta encontrar el grupo principal del personaje
             while (clickedObject.parent && !clickedObject.parent.isScene) {
                 clickedObject = clickedObject.parent;
             }
-
+ 
             if (clickedObject === menuCerdo) {
                 startGame('cerdo');
             } else if (clickedObject === menuGallina) {
                 startGame('gallina');
             }
         }
+    }
+
+    window.addEventListener('mousedown', (event) => {
+        handleInteraction(event.clientX, event.clientY);
     });
+
+    window.addEventListener('touchstart', (event) => {
+        handleInteraction(event.touches[0].clientX, event.touches[0].clientY);
+    }, { passive: true }); // Usar passive: true para mejor rendimiento en móviles
 }
 
 // Asignar eventos a los botones del menú y pantallas
