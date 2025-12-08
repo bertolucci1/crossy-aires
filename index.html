@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>CROSSY AIRES</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="game-container"></div>
+    <div id="character-container"></div>
+
+    <div id="coin-counter">
+        <div id="coin-icon-container"></div>
+        <span id="coin-text">0</span>
+    </div>
+
+    <div id="menu-screen" class="ui-screen">
+        <h1>CROSSY AIRES</h1>
+        <p class="menu-instruction">Haz clic en un personaje para empezar</p>
+    </div>
+
+    <div id="reward-screen" class="ui-screen hidden">
+        <h2>¡CRUZASTE LA AUTOPISTA!</h2>
+        <p>¡Ganaste 10 monedas y desbloqueaste skins!</p>
+        <div class="skin-selector">
+            <button id="btn-skin-boca" class="btn">Camiseta de Fútbol</button>
+            <button id="btn-skin-river" class="btn">Camiseta de River</button>
+            <button id="btn-skin-gala" class="btn">Traje de Gala</button>
+        </div>
+        <button id="btn-next-level" class="btn">Avanzar al Nivel 2</button>
+        <button id="btn-reset-reward" class="btn restart">Jugar de nuevo</button>
+    </div>
+
+    <div id="game-over-screen" class="ui-screen hidden">
+        <h2 style="color: red;">¡JUEGO TERMINADO!</h2>
+        <button id="btn-reset-gameover" class="btn restart">Intentar de nuevo</button>
+    </div>
+
+    <div id="controls">
+        <div class="control-row">
+            <button id="btn-forward" class="d-pad">▲</button>
+        </div>
+        <div class="control-row">
+            <button id="btn-left" class="d-pad">◀</button>
+            <button id="btn-right" class="d-pad">▶</button>
+        </div>
+        <div class="control-row">
+            <button id="btn-backward" class="d-pad">▼</button>
+        </div>
+    </div>
+
+    <!-- Carga de la librería Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
