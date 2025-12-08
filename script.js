@@ -204,13 +204,29 @@ function generateTestWorld() {
 
             // 2. Ajustar posición y escala según lo solicitado.
             // Lo situamos detrás del personaje, en el borde del mapa, y lo hacemos mucho más grande.
-            object.position.set(0, 10, -500); // x=0 (centrado), y=10 (un poco elevado), z=-200 (detrás del jugador)
+            object.position.set(-250, 10, -500); // Mover a la izquierda para hacer espacio
             object.scale.set(0.2, 0.2, 0.2); // Reducimos la escala. ¡Puedes seguir cambiando este valor si quieres (ej: 0.1, 0.5, etc.)!
 
             worldGroup.add(object);
 
         }, undefined, function (error) {
             console.error('Error al cargar monumental2.fbx:', error);
+        });
+
+        // Cargar el segundo modelo FBX (Bombonera)
+        loader.load('models/bombonera.fbx', function (object) {
+            console.log("Modelo FBX (Bombonera) cargado. Añadiendo a la escena...", object);
+
+            const axesHelper = new THREE.AxesHelper(100);
+            object.add(axesHelper);
+
+            // Colocarlo al lado del Monumental, con la misma escala y altura.
+            object.position.set(450, 10, -500); // Mover a la derecha
+            object.scale.set(0.1, 0.1, 0.1);
+
+            worldGroup.add(object);
+        }, undefined, function (error) {
+            console.error('Error al cargar bombonera.fbx:', error);
         });
     } else {
         console.warn('FBXLoader no está disponible.');
@@ -1028,10 +1044,13 @@ function updateVehicles() {
         if (v.position.x < -1000) v.position.x = 1000;
 
         // DETECCION DE COLISIÓN (AABB simple)
-        let distZ = Math.abs(player.position.z - v.position.z);
-        let distX = Math.abs(player.position.x - v.position.x);
-        if (distZ < 15 && distX < (v.userData.width / 2 + 10)) {
-            gameOver();
+        // En el mundo de pruebas, las colisiones están desactivadas para exploración libre.
+        if (!isTestWorld) {
+            let distZ = Math.abs(player.position.z - v.position.z);
+            let distX = Math.abs(player.position.x - v.position.x);
+            if (distZ < 15 && distX < (v.userData.width / 2 + 10)) {
+                gameOver();
+            }
         }
     });
 }
@@ -1055,6 +1074,8 @@ function updateCamera() {
 }
 
 function checkGameState() {
+    if (isTestWorld) return; // En el mundo de pruebas, no hay victoria ni derrota para poder explorar.
+
     // Chequear victoria
     let winZ;
     if (currentLevel < 3) {
