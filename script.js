@@ -27,13 +27,35 @@ let animationId;
 let menuAnimationId;
 let backgroundMusic;
 let currentLevel = 1;
+let currentWorld = 1;
+let currentLevelInWorld = 1;
+let maxUnlockedWorld = parseInt(localStorage.getItem('maxUnlockedWorld')) || 1;
+
+// --- LÓGICA DE DESBLOQUEO TEMPORAL ---
+if (localStorage.getItem('tempUnlockAll') === 'true') {
+    maxUnlockedWorld = 5; // Desbloquear todo para esta sesión
+    localStorage.removeItem('tempUnlockAll'); // Limpiar flag para que no se repita
+    localStorage.setItem('maxUnlockedWorld', 1); // Asegurar que la próxima vez esté bloqueado
+}
+
 let isTestWorld = false;
+let isTestWorldUnlocked = false; // NUEVO: Flag para el mundo de pruebas
 let playerCoins = 0;
 let isGameOver = false;
 let isFalling = false;
+let lodObjects = []; // <-- NUEVO: Lista dedicada para objetos con Nivel de Detalle (LOD)
 let currentAnimalType = 'cerdo'; // Default
+const WORLD_CONFIG = {
+    1: { name: "9 de Julio", model: "obelisco.fbx" },
+    2: { name: "Ciudad Universitaria", model: "monumental2.fbx" },
+    3: { name: "Avellaneda", model: "cilindro.fbx" },
+    4: { name: "La Boca", model: "bombonera.fbx" },
+    5: { name: "San Lorenzo", model: "gasometro.fbx" }
+};
+let selectedStadium = '';
 let equippedSkin = 'default'; // Para recordar la skin elegida
 let collisionSound, fallSound;
+let menuStadiums = {};
 
 // Variables de movimiento
 let targetPosition = { x: 0, z: 0 }; // La variable currentPosition no se usaba.
@@ -42,6 +64,10 @@ let targetPosition = { x: 0, z: 0 }; // La variable currentPosition no se usaba.
 function init() {
     // Escena y Fondo
     scene = new THREE.Scene();
+    // --- OPTIMIZACIÓN: Añadir niebla ---
+    // La niebla oculta los objetos lejanos, reduciendo la percepción de "pop-in"
+    // y permitiendo usar un plano de corte de cámara (far plane) más cercano.
+    scene.fog = new THREE.Fog(0x87CEEB, 500, 1500); // Color, near, far
     scene.background = new THREE.Color(0x87CEEB); // Cielo celeste
 
     // Cámara principal del juego
@@ -52,13 +78,17 @@ function init() {
     if (isMobileByUserAgent || hasTouch || aspect < 1) { // Si es móvil, táctil o la ventana es vertical
         d = 400; // Aumentamos MÁS la distancia para que el cambio sea obvio
     }
-    camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -1000, 2000);
+    // --- OPTIMIZACIÓN: Reducir el 'far' plane de la cámara ---
+    // El valor 'far' (tercer argumento) determina hasta qué distancia se renderiza.
+    // Lo reducimos de 2000 a 1600 para que coincida con la niebla y descarte objetos lejanos.
+    camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -1000, 1600);
     camera.position.set(100, 100, 100); // Posición diagonal
     camera.lookAt(scene.position);
 
     // Cámara para el fondo del menú (rotatoria)
     const menuBgCamDistance = 350;
-    menuBackgroundCamera = new THREE.OrthographicCamera(-menuBgCamDistance * aspect, menuBgCamDistance * aspect, menuBgCamDistance, -menuBgCamDistance, -1000, 2000);
+    // --- OPTIMIZACIÓN: Reducir el 'far' plane de la cámara del menú ---
+    menuBackgroundCamera = new THREE.OrthographicCamera(-menuBgCamDistance * aspect, menuBgCamDistance * aspect, menuBgCamDistance, -menuBgCamDistance, -1000, 1600);
     menuBackgroundCamera.position.set(0, 400, 0);
     menuBackgroundCamera.lookAt(scene.position);
 
@@ -85,13 +115,27 @@ function init() {
     // Luces
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
+
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.name = 'mainDirectionalLight'; // Asignar un nombre para encontrarla fácilmente
     dirLight.position.set(50, 100, 50);
     dirLight.castShadow = true;
+    // --- OPTIMIZACIÓN: Ajustar la cámara de sombras para que siga al jugador ---
+    // Reducimos el área que calcula sombras y su resolución para un gran aumento de FPS.
+    dirLight.shadow.camera.left = -250;
+    dirLight.shadow.camera.right = 250;
+    dirLight.shadow.camera.top = 250;
+    dirLight.shadow.camera.bottom = -250;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 200;
     scene.add(dirLight);
-    // Añadir luces también a la escena de personajes para que se vean bien
+    scene.add(dirLight.target); // El objetivo de la luz también debe estar en la escena
+
     characterScene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    characterScene.add(new THREE.DirectionalLight(0xffffff, 0.8).position.set(10, 50, 50));
+    // CORRECCIÓN: No se puede añadir una posición a la escena, se debe añadir el objeto de luz.
+    const characterDirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    characterDirLight.position.set(10, 50, 50);
+    characterScene.add(characterDirLight);
 
     // Grupo para contener todos los objetos del mundo (mapa, edificios, etc.)
     worldGroup = new THREE.Group();
@@ -100,13 +144,14 @@ function init() {
     // Generar Mapa y Escenario para el fondo del menú
     generateMap();
     generateCityscape(); // Añadir edificios al menú
+    initMenuStadiums(); // Volvemos a cargar los estadios al inicio
     // --- Personajes del Menú ---
     menuCerdo = createPigModel();
-    menuCerdo.position.set(-50, 0, 0);
+    menuCerdo.position.set(-25, 0, 0);
     characterScene.add(menuCerdo);
 
     menuGallina = createChickenModel();
-    menuGallina.position.set(50, 0, 0);
+    menuGallina.position.set(30, 0, 0);
     menuGallina.rotation.y = -Math.PI / 6;
     characterScene.add(menuGallina);
 
@@ -118,6 +163,12 @@ function init() {
 
     // Asignar eventos a los botones del UI
     setupUI();
+
+    // Actualizar estado de los botones de mundo según progreso guardado
+    updateWorldButtons();
+
+    // Listener para reajustar en cambio de tamaño/orientación
+    window.addEventListener('resize', onWindowResize, false);
 
     // Configurar Raycaster para selección de personaje
     setupRaycasting();
@@ -142,43 +193,125 @@ function init() {
     
     // Iniciar la animación del menú
     menuAnimate();
+
+    // Ocultar la pantalla de intro después de 3 segundos para camuflar la carga inicial
+    setTimeout(() => {
+        const introScreen = document.getElementById('intro-screen');
+        if (introScreen) introScreen.classList.add('hidden');
+    }, 3000);
+}
+
+function onWindowResize() {
+    const aspect = window.innerWidth / window.innerHeight;
+
+    // Actualizar cámara principal
+    let d = 150;
+    const isMobileByUserAgent = /Mobi|Android|iPhone/i.test(navigator.userAgent);
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isMobileByUserAgent || hasTouch || aspect < 1) {
+        d = 400;
+    }
+    camera.left = -d * aspect;
+    camera.right = d * aspect;
+    camera.top = d;
+    camera.bottom = -d;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Actualizar cámara de fondo del menú
+    const menuBgCamDistance = 350;
+    menuBackgroundCamera.left = -menuBgCamDistance * aspect;
+    menuBackgroundCamera.right = menuBgCamDistance * aspect;
+    menuBackgroundCamera.top = menuBgCamDistance;
+    menuBackgroundCamera.bottom = -menuBgCamDistance;
+    menuBackgroundCamera.updateProjectionMatrix();
+
+    // Actualizar cámara de personajes (IMPORTANTE para las vistas previas)
+    const characterCamDistance = 120;
+    characterCamera.left = -characterCamDistance * aspect;
+    characterCamera.right = characterCamDistance * aspect;
+    characterCamera.top = characterCamDistance;
+    characterCamera.bottom = -characterCamDistance;
+    characterCamera.updateProjectionMatrix();
+    characterRenderer.setSize(window.innerWidth, window.innerHeight);
+
+    // Reajustar layout de estadios si estamos en esa pantalla
+    updateMenuStadiumsLayout();
 }
 
 // Generador de Mapa
 function generateMap() {
     if (isTestWorld) {
-        generateTestWorld();
-    } else if (currentLevel < 3) {
-        generateRichieriMap();
+        generateTestWorld(); // Mantenemos el mundo de pruebas como está
     } else {
-        generateCiudadUniversitariaMap();
+        // Lógica de Mundos
+        switch (currentWorld) {
+            case 1: // 9 de Julio
+                generateRichieriMap(currentLevelInWorld);
+                // Aquí iría la carga del Obelisco cuando lo tengas
+                break;
+            case 2: // Ciudad Universitaria
+                generateCiudadUniversitariaMap(); // Esta función ya tiene su propia lógica compleja
+                break;
+            case 3: // Avellaneda
+            case 4: // La Boca
+            case 5: // San Lorenzo
+                generateRichieriMap(currentLevelInWorld); // Usamos la misma base de autopista
+                loadWorldModel(); // Cargamos el estadio correspondiente
+                break;
+        }
     }
+}
+
+function loadWorldModel() {
+    if (typeof THREE.FBXLoader === 'undefined' || !WORLD_CONFIG[currentWorld]) return;
+
+    const loader = new THREE.FBXLoader();
+    const worldInfo = WORLD_CONFIG[currentWorld];
+    const modelPath = `models/${worldInfo.model}`;
+
+    loader.load(modelPath, function (object) {
+        // Posicionamos el modelo de fondo para ambientar
+        object.position.set(300, 10, -800);
+        object.scale.set(0.25, 0.25, 0.25);
+        object.rotation.y = -Math.PI / 2;
+        object.name = `stadium_world_${currentWorld}`; // Asignar nombre para control de visibilidad
+        lodObjects.push(object); // Añadir a la lista de objetos a optimizar
+        worldGroup.add(object);
+    }, undefined, function (error) {
+        console.error(`Error al cargar el modelo para el Mundo ${currentWorld}:`, error);
+    });
+}
+
+function getDifficultyMultiplier() {
+    if (isTestWorld) {
+        return 1;
+    }
+    // La dificultad aumenta un 5% por cada mundo
+    return 1 + (currentWorld - 1) * 0.05;
 }
 
 // Mundo de prueba: autopista del mundo 3, sin autos, trenes ni edificios
 function generateTestWorld() {
     let currentZ = 0;
-    // Suelo de pasto verde para el nivel
     const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000);
     const cityGroundMat = new THREE.MeshLambertMaterial({ color: CONFIG.colors.grass });
     const cityGround = new THREE.Mesh(cityGroundGeo, cityGroundMat);
     cityGround.rotation.x = -Math.PI / 2;
     cityGround.position.y = -6;
     worldGroup.add(cityGround);
-
-    // Zona de inicio (Pasto)
     createLane(currentZ, 'grass');
     currentZ += CONFIG.laneWidth;
-
-    // Simular una sección de autopista (como mundo 3, pero sin autos ni trenes)
     for (let i = 0; i < 4; i++) {
-        createLane(currentZ, 'road', 0); // velocidad 0 = sin autos
+        const speed = (Math.random() * 2 + 1.5) * CONFIG.speedFactor;
+        createLane(currentZ, 'road', speed); // Añadido tráfico
         currentZ += CONFIG.laneWidth;
     }
     createLane(currentZ, 'grass');
     currentZ += CONFIG.laneWidth;
-    for (let i = 0; i < 4; i++) {
-        createLane(currentZ, 'road', 0);
+    for (let i = 0; i < 4; i++) { // Corregido: Bucle para la segunda parte de la autopista
+        const speed = (Math.random() * 2 + 1.5) * -1 * CONFIG.speedFactor;
+        createLane(currentZ, 'road', speed); // Añadido tráfico en dirección contraria
         currentZ += CONFIG.laneWidth;
     }
     createLane(currentZ, 'grass');
@@ -188,111 +321,221 @@ function generateTestWorld() {
     const guardRailZ1 = 0.5 * CONFIG.laneWidth;
     const guardRailZ2 = currentZ - 1.5 * CONFIG.laneWidth;
     createGuardRail(guardRailZ1);
-    createGuardRail(guardRailZ2);
-    // No edificios, no trenes, no autos
+    createGuardRail(guardRailZ2); // Corregido: Añadir la segunda barandilla
 
     // Cargar modelo FBX de prueba
     if (typeof THREE.FBXLoader !== 'undefined') {
         const loader = new THREE.FBXLoader();
-        loader.load('models/monumental2.fbx', function (object) {
-            console.log("Modelo FBX cargado. Añadiendo a la escena...", object);
+        let modelPath = '';
+        let modelName = '';
 
-            // --- Pasos de Depuración ---
-            // 1. Añadir un ayudante de ejes para ver la orientación y el pivote del objeto.
-            const axesHelper = new THREE.AxesHelper(100); // Reducimos el tamaño de los ejes para que coincida con la nueva escala.
-            object.add(axesHelper);
+        switch (selectedStadium) {
+            case 'monumental':
+                {
+                    const loaderMonumental = new THREE.FBXLoader();
+                    // --- INICIO: Carga del Estadio Monumental ---
+                    loaderMonumental.load('models/monumental2.fbx', function (stadiumObject) {
+                        // --- Puedes editar la posición y escala del ESTADIO aquí ---
+                        stadiumObject.position.set(0, 10, -200); // x, y (altura), z (profundidad)
+                        stadiumObject.scale.set(0.3, 0.3, 0.3);   // Tamaño del modelo
+                        stadiumObject.name = 'stadium_test_monumental'; // Asignar nombre
+                        lodObjects.push(stadiumObject);
+                        worldGroup.add(stadiumObject);
 
-            // 2. Ajustar posición y escala según lo solicitado.
-            // Lo situamos detrás del personaje, en el borde del mapa, y lo hacemos mucho más grande.
-            object.position.set(-250, 10, -500); // Mover a la izquierda para hacer espacio
-            object.scale.set(0.2, 0.2, 0.2); // Reducimos la escala. ¡Puedes seguir cambiando este valor si quieres (ej: 0.1, 0.5, etc.)!
+                        // --- INICIO: Carga de la Cancha Base al lado del Monumental ---
+                        const loaderCancha = new THREE.FBXLoader();
+                        loaderCancha.load('models/canchabase.fbx', function (canchaObject) {
+                            // --- Puedes editar la posición y escala de la CANCHA BASE aquí ---
+                            canchaObject.name = 'stadium_test_canchabase'; // Nombre para LOD
+                            // La posicionamos al lado del estadio principal, ajustando el valor 'x'.
+                            canchaObject.position.set(500, 10, -200); // Acercamos la cancha al estadio.
+                            // Reducimos la escala para que sea mucho más pequeña.
+                            canchaObject.scale.set(0.03, 0.03, 0.03);
+                            worldGroup.add(canchaObject);
+                        });
+                        // --- FIN: Carga de la Cancha Base ---
+                    });
+                    // --- FIN: Carga del Estadio Monumental ---
+                }
+                break;
+            case 'bombonera':
+                modelPath = 'models/bombonera.fbx';
+                modelName = 'Bombonera';
+                break;
+            case 'cilindro':
+                modelPath = 'models/cilindro.fbx';
+                modelName = 'Cilindro';
+                break;
+            case 'gasometro':
+                modelPath = 'models/gasometro.fbx';
+                modelName = 'Gasómetro';
+                break;
+        }
 
-            worldGroup.add(object);
+        // El código original para cargar un solo modelo se mueve dentro de cada 'case',
+        // excepto para el Monumental que ahora tiene una lógica especial.
+        if (modelPath && selectedStadium !== 'monumental') {
+             loader.load(modelPath, function (object) {
+                 console.log(`Modelo FBX (${modelName}) cargado. Añadiendo a la escena...`, object);
+ 
+                 // Posición central y una escala grande para que sea protagonista
+                 object.position.set(0, 10, -200);
+                 object.scale.set(0.3, 0.3, 0.3);
+                 object.name = `stadium_test_${selectedStadium}`; // Asignar nombre
+                 lodObjects.push(object);
 
-        }, undefined, function (error) {
-            console.error('Error al cargar monumental2.fbx:', error);
-        });
-
-        // Cargar el segundo modelo FBX (Bombonera)
-        loader.load('models/bombonera.fbx', function (object) {
-            console.log("Modelo FBX (Bombonera) cargado. Añadiendo a la escena...", object);
-
-            const axesHelper = new THREE.AxesHelper(100);
-            object.add(axesHelper);
-
-            // Colocarlo al lado del Monumental, con la misma escala y altura.
-            object.position.set(450, 10, -500); // Mover a la derecha
-            object.scale.set(0.1, 0.1, 0.1);
-
-            worldGroup.add(object);
-        }, undefined, function (error) {
-            console.error('Error al cargar bombonera.fbx:', error);
-        });
+                 worldGroup.add(object);
+ 
+             }, undefined, function (error) {
+                 console.error(`Error al cargar ${modelPath}:`, error);
+             });
+         }
     } else {
         console.warn('FBXLoader no está disponible.');
     }
 }
 
-// Generador para Autopista Richieri (Niveles 1 y 2)
-function generateRichieriMap() {
+// Generador para Autopista Richieri (Mundos 1, 3, 4, 5)
+function generateRichieriMap(levelInWorld) {
     let currentZ = 0;
+    const difficulty = getDifficultyMultiplier();
 
-    // Suelo de la ciudad (se añade primero para que esté debajo de todo)
-    const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000); // Tamaño grande para cubrir todos los niveles
+    const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000);
     const cityGroundMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
     const cityGround = new THREE.Mesh(cityGroundGeo, cityGroundMat);
     cityGround.rotation.x = -Math.PI / 2;
-    cityGround.position.y = -100;
+    cityGround.position.y = -6;
     worldGroup.add(cityGround);
 
-    // Zona de inicio (Pasto)
+    // --- AJUSTES DE DIFICULTAD POR NIVEL ---
+    // El nivel 1 y 2 ahora son estructuralmente iguales, solo cambia la velocidad.
+    const isLevel2 = (levelInWorld === 2);
+
+    // --- Velocidad de los autos ---
+    // Puedes ajustar estos valores para cambiar la dificultad.
+    // speedMultiplierLevel1: Velocidad para el nivel 1 de cada mundo.
+    // speedMultiplierLevel2: Velocidad para el nivel 2 de cada mundo (más rápido).
+    const speedMultiplierLevel1 = 1.0;
+    const speedMultiplierLevel2 = 5.7; // Aumentado para que el cambio sea más notorio
+    const speedMultiplier = isLevel2 ? speedMultiplierLevel2 : speedMultiplierLevel1;
+
+    // --- Cantidad de autos ---
+    // Se reduce la cantidad de autos para mejorar el rendimiento y ajustar la jugabilidad.
+    // carsPerLane: Número máximo de autos que pueden aparecer en un carril.
+    const carsPerLane = 2; // Reducido a un máximo de 2 autos por carril para ambos niveles.
+
+    // --- Generación de la autopista (una sola sección) ---
+    createLane(currentZ, 'grass');
+    currentZ += CONFIG.laneWidth;
+    for (let i = 0; i < 4; i++) {
+        let speed = (Math.random() * 2 + 1.5) * 1 * CONFIG.speedFactor * difficulty * speedMultiplier;
+        createLane(currentZ, 'road', speed, carsPerLane);
+        currentZ += CONFIG.laneWidth;
+    }
+    createMedianStrip(currentZ);
+    currentZ += CONFIG.laneWidth;
+    for (let i = 0; i < 4; i++) {
+        let speed = (Math.random() * 2 + 1.5) * -1 * CONFIG.speedFactor * difficulty * speedMultiplier;
+        createLane(currentZ, 'road', speed, carsPerLane);
+        currentZ += CONFIG.laneWidth;
+    }
     createLane(currentZ, 'grass');
     currentZ += CONFIG.laneWidth;
 
-    // Generar autopistas según el nivel
-    for (let levelIndex = 0; levelIndex < currentLevel; levelIndex++) {
-        // 4 carriles de ida
-        for (let i = 0; i < 4; i++) {
-            let direction = 1; // Derecha
-            let speed = (Math.random() * 2 + 1) * direction * CONFIG.speedFactor * (1 + (currentLevel - 1) * 0.1);
-            createLane(currentZ, 'road', speed);
-            currentZ += CONFIG.laneWidth;
-        }
-
-        // Separador central
-        createMedianStrip(currentZ);
-        currentZ += CONFIG.laneWidth;
-
-        // 4 carriles de vuelta
-        for (let i = 0; i < 4; i++) {
-            let direction = -1; // Izquierda
-            let speed = (Math.random() * 2 + 1) * direction * CONFIG.speedFactor * (1 + (currentLevel - 1) * 0.1);
-            createLane(currentZ, 'road', speed);
-            currentZ += CONFIG.laneWidth;
-        }
-
-        // Zona de pasto intermedia (o final)
-        createLane(currentZ, 'grass');
-        currentZ += CONFIG.laneWidth;
-
-        // Añadir cartel de autopista para este tramo
-        createHighwaySign(currentZ - CONFIG.laneWidth); // Colocar el cartel en la zona segura
-    }
-
-    // Añadir barandillas a los lados de la autopista
     const guardRailZ1 = 0.5 * CONFIG.laneWidth;
     const guardRailZ2 = currentZ - 1.5 * CONFIG.laneWidth;
     createGuardRail(guardRailZ1);
     createGuardRail(guardRailZ2);
-
-    // Generar el paisaje urbano para este nivel
     generateCityscape();
 }
 
+function initMenuStadiums() {
+    const manager = new THREE.LoadingManager();
+    manager.onLoad = () => {
+        // Esto se ejecuta cuando TODOS los modelos se han cargado en segundo plano.
+        console.log('Todos los estadios del menú cargados en segundo plano.');
+    };
+
+    const loader = new THREE.FBXLoader(manager); // Usar el manager con el loader
+
+    const stadiums = [
+        { name: 'monumental', path: 'models/monumental2.fbx' },
+        { name: 'bombonera', path: 'models/bombonera.fbx' },
+        { name: 'cilindro', path: 'models/cilindro.fbx' },
+        { name: 'gasometro', path: 'models/gasometro.fbx' }
+    ];
+
+    stadiums.forEach(stadium => {
+        loader.load(stadium.path, function (object) {
+            // --- VALIDACIÓN DE SEGURIDAD ---
+            // Asegurarse de que el loader devolvió un objeto 3D válido antes de añadirlo.
+            // Esto previene el error "object not an instance of THREE.Object3D".
+            if (!object || !(object instanceof THREE.Object3D)) {
+                console.error(`Error: El archivo ${stadium.path} no parece ser un modelo 3D válido o está corrupto.`);
+                return; // No continuar si el objeto no es válido
+            }
+            // Centrar el modelo
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            object.position.sub(center);
+
+            // Guardar su dimensión original para escalar dinámicamente
+            const size = box.getSize(new THREE.Vector3());
+            object.userData.maxDim = Math.max(size.x, size.y, size.z);
+
+            // Ocultarlo inicialmente
+            object.visible = false;
+
+            // Añadir a la escena de personajes y guardarlo
+            characterScene.add(object);
+            menuStadiums[stadium.name] = object;
+        }, undefined, function (error) {
+            console.error(`Error al cargar el modelo ${stadium.name}:`, error);
+        });
+    });
+}
+
+function updateMenuStadiumsLayout() {
+    const isHorizontal = window.innerWidth / window.innerHeight > 1.1; // Umbral para considerar vista horizontal
+    let layoutConfig;
+
+    if (isHorizontal) {
+        // Vista Horizontal (PC): Fila única, mucho más juntos y sobre los botones.
+        layoutConfig = {
+            monumental: { pos: { x: -105, y: -40 }, scaleFactor: 30 }, // Valor 'y' negativo para bajarlo
+            bombonera:  { pos: { x: -35, y: -40 }, scaleFactor: 30 },
+            cilindro:   { pos: { x: 35,  y: -40 }, scaleFactor: 30 },
+            gasometro:  { pos: { x: 103,  y: -120 }, scaleFactor: 30 }
+        };
+    } else {
+        // Vista Vertical (Móvil): Cuadrícula 2x2, más compacta.
+        layoutConfig = {
+            monumental: { pos: { x: -28, y: 20 }, scaleFactor: 40 },  // 'y' más bajo
+            bombonera:  { pos: { x: 30,  y: 17 }, scaleFactor: 28 },
+            cilindro:   { pos: { x: -28, y: -50 }, scaleFactor: 45 }, // 'y' más bajo (más negativo)
+            gasometro:  { pos: { x: 28,  y: -130 }, scaleFactor: 28 }
+        };
+    }
+
+    for (const name in menuStadiums) {
+        const model = menuStadiums[name];
+        const config = layoutConfig[name];
+        
+        if (model && config && model.userData.maxDim > 0) {
+            const originalMaxDim = model.userData.maxDim;
+            model.position.x = config.pos.x;
+            model.position.y = config.pos.y;
+            
+            const newScale = config.scaleFactor / originalMaxDim;
+            model.scale.set(newScale, newScale, newScale);
+        }
+    }
+}
 // Generador para Ciudad Universitaria (Nivel 3+)
 function generateCiudadUniversitariaMap() {
     let currentZ = 0;
-    
+    const difficulty = getDifficultyMultiplier();
+
     // Suelo de pasto verde para el nivel
     const cityGroundGeo = new THREE.PlaneGeometry(2500, 10000);
     const cityGroundMat = new THREE.MeshLambertMaterial({ color: CONFIG.colors.grass });
@@ -301,20 +544,29 @@ function generateCiudadUniversitariaMap() {
     cityGround.position.y = -6; // Un poco por debajo de las calles
     worldGroup.add(cityGround);
 
+    // --- AJUSTES DE DIFICULTAD POR NIVEL (APLICADO A C.U.) ---
+    // Se unifica la estructura de Nivel 1 y 2. La dificultad ahora solo varía por la velocidad.
+    const isLevel2 = (currentLevelInWorld === 2);
+    const speedMultiplierLevel1 = 1.0;
+    const speedMultiplierLevel2 = 1.7; // Misma velocidad aumentada que en otros mundos.
+    const speedMultiplier = isLevel2 ? speedMultiplierLevel2 : speedMultiplierLevel1;
+    const carsPerLane = 2; // Máximo 2 autos por carril para optimizar.
+
     // Zona de inicio (Pasto)
     createLane(currentZ, 'grass');
     currentZ += CONFIG.laneWidth;
 
-    // El número de "secciones" de C.U. aumenta con el nivel
-    const cuSections = currentLevel - 2; 
+    // El número de "secciones" de C.U. ahora es siempre 1 para que Nivel 1 y 2 sean iguales en estructura.
+    const cuSections = 1;
 
     for (let sectionIndex = 0; sectionIndex < cuSections; sectionIndex++) {
         const sectionStartZ = currentZ;
         // --- Av. Leopoldo Lugones --- (Cartel al principio)
         createHighwaySign(currentZ - CONFIG.laneWidth, "AV. Leopoldo Lugones", 0.9); // Cartel más pequeño
         for (let i = 0; i < 4; i++) {
-            let speed = (Math.random() * 2 + 2) * 1 * CONFIG.speedFactor;
-            createLane(currentZ, 'road', speed);
+            // Se aplica el multiplicador de velocidad del nivel
+            let speed = (Math.random() * 2 + 2) * 1 * CONFIG.speedFactor * difficulty * speedMultiplier;
+            createLane(currentZ, 'road', speed, carsPerLane); // Se pasa la cantidad de autos
             currentZ += CONFIG.laneWidth;
         }
 
@@ -323,9 +575,10 @@ function generateCiudadUniversitariaMap() {
         currentZ += CONFIG.laneWidth;
 
         const trainTracksStartZ = currentZ;
-        createTrainTrack(currentZ, 15); // Vía 1, velocidad 15
+        // La velocidad del tren también aumenta en el nivel 2
+        createTrainTrack(currentZ, 15 * difficulty * speedMultiplier);
         currentZ += CONFIG.laneWidth;
-        createTrainTrack(currentZ, -15); // Vía 2, velocidad -15
+        createTrainTrack(currentZ, -15 * difficulty * speedMultiplier);
         currentZ += CONFIG.laneWidth;
 
         // Añadir una estación de tren en cada sección de vías
@@ -340,8 +593,9 @@ function generateCiudadUniversitariaMap() {
 
         // --- Av. Int. Cantilo ---
         for (let i = 0; i < 4; i++) {
-            let speed = (Math.random() * 2 + 2) * -1 * CONFIG.speedFactor;
-            createLane(currentZ, 'road', speed);
+            // Se aplica el multiplicador de velocidad del nivel
+            let speed = (Math.random() * 2 + 2) * -1 * CONFIG.speedFactor * difficulty * speedMultiplier;
+            createLane(currentZ, 'road', speed, carsPerLane); // Se pasa la cantidad de autos
             currentZ += CONFIG.laneWidth;
         }
 
@@ -359,10 +613,77 @@ function generateCiudadUniversitariaMap() {
 
     // Generar el paisaje urbano para este nivel
     generateCityscape();
+
+    // --- INICIO: Cargar Estadio Monumental para Nivel 3 ---
+    // Este bloque de código carga el modelo del estadio y lo posiciona en la escena.
+    if (typeof THREE.FBXLoader !== 'undefined') {
+        const loader = new THREE.FBXLoader();
+        const modelPath = 'models/monumental2.fbx'; // Ruta a tu modelo
+
+        loader.load(modelPath, function (object) {
+            // --- Puedes editar estos valores para cambiar la apariencia del estadio ---
+
+            // 1. POSICIÓN: { x: horizontal, y: vertical, z: profundidad }
+            //    - 'x' positivo lo mueve a la derecha, negativo a la izquierda.
+            //    - 'y' positivo lo mueve hacia arriba, negativo hacia abajo.
+            //    - 'z' positivo lo acerca, negativo lo aleja.
+            object.position.set(400, 10, -1000);
+
+            // 2. ESCALA: Qué tan grande se ve el modelo.
+            //    Un valor más grande lo hace más grande. 0.3 es un buen punto de partida.
+            object.scale.set(0.3, 0.3, 0.3);
+
+            // 3. ROTACIÓN (en radianes): Para girar el modelo.
+            //    Puedes usar Math.PI para giros comunes (ej: Math.PI / 2 para 90 grados).
+            object.rotation.y = -Math.PI / 2.5;
+
+            object.name = 'stadium_main_monumental'; // Asignar nombre para control de visibilidad
+            lodObjects.push(object); // Añadir a la lista de optimización
+            worldGroup.add(object); // Añade el estadio a la escena del juego.
+
+        }, undefined, function (error) {
+            console.error(`Error al cargar el estadio para el Nivel 3:`, error);
+        });
+    }
+    // --- FIN: Cargar Estadio Monumental ---
+
+    // --- INICIO: Cargar Cancha Base para Nivel 3 ---
+    // Este bloque carga el modelo 'canchabase.fbx' con la misma configuración que en el mundo de pruebas.
+    if (typeof THREE.FBXLoader !== 'undefined') {
+        const loaderCancha = new THREE.FBXLoader();
+        loaderCancha.load('models/canchabase.fbx', function (canchaObject) {
+            // --- Puedes editar la posición y escala de la CANCHA BASE aquí ---
+
+            // 1. POSICIÓN: Copiada exactamente del mundo de pruebas.
+            canchaObject.position.set(500, 10, -200);
+
+            // 2. ESCALA: Copiada exactamente del mundo de pruebas.
+            canchaObject.scale.set(0.03, 0.03, 0.03);
+
+            canchaObject.name = 'stadium_cancha_base_1'; // Nombre para que el LOD lo detecte
+            lodObjects.push(canchaObject);
+            worldGroup.add(canchaObject); // Añade la cancha base a la escena del juego.
+
+            // --- INICIO: Duplicar el modelo canchabase.fbx ---
+            // Clonamos el objeto de la cancha que acabamos de cargar.
+            const canchaDuplicada = canchaObject.clone();
+
+            // 1. POSICIÓN del duplicado: Lo movemos a un costado del original.
+            //    Puedes cambiar este valor para ajustar la separación.
+            canchaDuplicada.position.x += 100; // Movemos 100 unidades a la derecha.
+
+            canchaDuplicada.name = 'stadium_cancha_base_2'; // Nombre para que el LOD lo detecte
+            lodObjects.push(canchaDuplicada);
+            worldGroup.add(canchaDuplicada); // Añadimos el duplicado a la escena.
+            // --- FIN: Duplicar el modelo canchabase.fbx ---
+        }, undefined, function (error) {
+            console.error(`Error al cargar la cancha base para el Nivel 3:`, error);
+        });
+    }
 }
 
 // Crear un carril
-function createLane(zPos, type, speed = 0) {
+function createLane(zPos, type, speed = 0, maxCarsPerLane = 4) {
     const laneGeo = new THREE.BoxGeometry(2000, 10, CONFIG.laneWidth);
     let laneMat;
 
@@ -406,7 +727,9 @@ function createLane(zPos, type, speed = 0) {
 
         // Agregar vehículos al carril
         if (speed !== 0) { // Solo generar vehículos en carriles con movimiento
-            let carCount = Math.floor(Math.random() * 3) + 2; // Ahora entre 2 y 4 vehículos por carril
+            // CORRECCIÓN: Usar el parámetro maxCarsPerLane para determinar la cantidad de autos.
+            // Antes estaba fijo entre 2 y 4. Ahora será entre 1 y el máximo que definamos.
+            const carCount = Math.floor(Math.random() * maxCarsPerLane) + 1;
             for(let k=0; k<carCount; k++) {
                 let offset = (Math.random() * 1800) - 900; // Rango de aparición más amplio
                 spawnVehicle(zPos, speed, offset);
@@ -1014,6 +1337,15 @@ function menuAnimate() {
     if (coinMesh) coinMesh.rotation.y += 0.02; // Rotar la moneda del contador
     if (coinRenderer) coinRenderer.render(coinScene, coinCamera);
 
+    // 4. Renderizar las vistas previas de los estadios si están visibles
+    if (!document.getElementById('stadium-select-container').classList.contains('hidden')) {
+        for (const key in menuStadiums) {
+            if (menuStadiums[key] && menuStadiums[key].visible) {
+                menuStadiums[key].rotation.y += 0.01;
+            }
+        }
+    }
+
     menuAnimationId = requestAnimationFrame(menuAnimate);
 }
 
@@ -1026,6 +1358,7 @@ function animate() {
     updateVehicles();
     updatePlayer();
     updateCamera();
+    updateDistantObjects(); // <-- NUEVA LLAMADA A LA FUNCIÓN DE OPTIMIZACIÓN
     checkGameState();
 
     if (coinMesh) coinMesh.rotation.y += 0.02;
@@ -1033,6 +1366,38 @@ function animate() {
 
     renderer.render(scene, camera);
     animationId = requestAnimationFrame(animate);
+}
+
+// --- OPTIMIZACIÓN: Control de visibilidad y sombras de objetos lejanos ---
+function updateDistantObjects() {
+    const visibilityDistance = 1200; // Distancia a la que los objetos grandes (estadios) se ocultan
+    const lodVisibilityDistance = 1200; // Distancia a la que los objetos grandes (estadios) se ocultan
+    const shadowDistance = 400; // Distancia a la que los vehículos dejan de proyectar sombras
+    const vehicleVisibilityDistance = 600; // Distancia a la que los vehículos se ocultan por completo
+    
+    // --- OPTIMIZACIÓN MEJORADA: Iterar sobre una lista dedicada en lugar de `traverse` ---
+    // Esto es mucho más rápido que recorrer todos los objetos de la escena en cada frame.
+    lodObjects.forEach(obj => {
+        const distance = camera.position.distanceTo(obj.position);
+        obj.visible = distance < visibilityDistance;
+        // Se hace visible solo si está dentro de la distancia de visibilidad.
+        obj.visible = distance < lodVisibilityDistance;
+    });
+
+    // Optimización 2: Desactivar sombras de vehículos lejanos
+    // Optimización 2: Desactivar sombras y visibilidad de vehículos lejanos
+    vehicles.forEach(v => {
+        const distance = camera.position.distanceTo(v.position);
+        const body = v.children[0];
+        
+        // Ocultar el vehículo completo si está muy lejos
+        v.visible = distance < vehicleVisibilityDistance;
+
+        // Desactivar solo la sombra si está a una distancia intermedia para mejorar el rendimiento
+        if (body && body.castShadow !== (distance < shadowDistance)) {
+            body.castShadow = distance < shadowDistance;
+        }
+    });
 }
 
 function updateVehicles() {
@@ -1060,6 +1425,18 @@ function updatePlayer() {
     player.position.x += (targetPosition.x - player.position.x) * 0.2;
     player.position.z += (targetPosition.z - player.position.z) * 0.2;
 
+    // Animación de salto (simple)
+    const jumpHeight = 15;
+    const groundY = 0;
+    // Simula un arco de salto basado en la distancia al objetivo
+    const dist = player.position.distanceTo(targetPosition);
+    if (dist > 1) {
+        const jumpProgress = 1 - (dist / CONFIG.laneWidth); // 0 al inicio del salto, 1 al final
+        player.position.y = groundY + Math.sin(jumpProgress * Math.PI) * jumpHeight;
+    } else {
+        player.position.y = groundY;
+    }
+
     // Animación de caída
     if (isFalling) {
         player.position.y -= 5; // Velocidad de caída
@@ -1071,21 +1448,37 @@ function updateCamera() {
     camera.position.x += ((targetPosition.x + 100) - camera.position.x) * 0.1;
     camera.position.z += ((targetPosition.z + 100) - camera.position.z) * 0.1;
     camera.lookAt(player.position.x, 0, player.position.z);
+
+    // --- OPTIMIZACIÓN: Actualizar la luz para que siga al jugador ---
+    // Esto centra el mapa de sombras de alta calidad alrededor del jugador, mejorando el rendimiento.
+    const dirLight = scene.getObjectByName('mainDirectionalLight');
+    if (dirLight && player) {
+        dirLight.position.x = player.position.x + 50;
+        dirLight.position.z = player.position.z + 50;
+        dirLight.target.position.copy(player.position);
+        dirLight.target.updateMatrixWorld(); // Esencial para que el objetivo de la luz se actualice
+    }
 }
 
 function checkGameState() {
     if (isTestWorld) return; // En el mundo de pruebas, no hay victoria ni derrota para poder explorar.
 
-    // Chequear victoria
+    // --- LÓGICA DE VICTORIA ACTUALIZADA ---
+    // La distancia para ganar ahora es fija para cada tipo de mundo, ya que los
+    // niveles 1 y 2 tienen la misma estructura y solo varía la velocidad.
     let winZ;
-    if (currentLevel < 3) {
-        winZ = currentLevel * 10 * CONFIG.laneWidth;
-    } else {
-        winZ = ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth; // 12 carriles por sección de C.U.
+    if (currentWorld === 2) { // Mundo 2: Ciudad Universitaria
+        // 1 (inicio) + 4 (Lugones) + 1 (pasto) + 2 (vías) + 1 (pasto) + 4 (Cantilo) = 13 carriles a cruzar
+        winZ = 13 * CONFIG.laneWidth;
+    } else { // Mundos 1, 3, 4, 5 (basados en autopista)
+        // 1 (inicio) + 4 (ida) + 1 (mediana) + 4 (vuelta) = 10 carriles a cruzar
+        winZ = 10 * CONFIG.laneWidth;
     }
+
     if (player.position.z >= winZ) {
         winGame();
     }
+
     // Chequear si se cae
     if (player.position.z < -CONFIG.laneWidth / 4 && !isFalling) {
         isFalling = true;
@@ -1107,10 +1500,6 @@ function move(direction) {
         case 'left': targetPosition.x -= step; break;  // Invertido para que sea intuitivo
         case 'right': targetPosition.x += step; break; // Invertido para que sea intuitivo
     }
-    
-    // Efecto de salto (simple)
-    player.position.y = 20;
-    setTimeout(() => { player.position.y = 0; }, 100);
 }
 
 function setupControls() {
@@ -1181,38 +1570,95 @@ function setupUI() {
     document.getElementById('btn-skin-river').addEventListener('click', () => applySkin('camiseta_river'));
     document.getElementById('btn-skin-gala').addEventListener('click', () => applySkin('gala'));
     document.getElementById('btn-next-level').addEventListener('click', goToNextLevel);
+    document.getElementById('btn-finish-game').addEventListener('click', finishGameAndUnlockAll);
     document.getElementById('btn-reset-reward').addEventListener('click', resetGame);
     document.getElementById('btn-restart-to-menu').addEventListener('click', () => resetGame(false));
     document.getElementById('btn-reset-gameover').addEventListener('click', resetGame);
 
-    document.getElementById('btn-level-1').addEventListener('click', () => selectLevel(1));
-    document.getElementById('btn-level-2').addEventListener('click', () => selectLevel(2));
-    document.getElementById('btn-level-3').addEventListener('click', () => selectLevel(3));
-    document.getElementById('btn-test-world').addEventListener('click', () => selectTestWorld());
+    for (let i = 1; i <= 5; i++) {
+        document.getElementById(`btn-world-${i}`).addEventListener('click', () => selectWorld(i));
+    }
+
+    // document.getElementById('btn-test-world').addEventListener('click', () => selectTestWorld()); // ANTERIOR
+    document.getElementById('btn-test-world').addEventListener('click', handleTestWorldClick); // NUEVO
+
+    document.getElementById('btn-stadium-monumental').addEventListener('click', () => selectStadiumLevel('monumental'));
+    document.getElementById('btn-stadium-bombonera').addEventListener('click', () => selectStadiumLevel('bombonera'));
+    document.getElementById('btn-stadium-cilindro').addEventListener('click', () => selectStadiumLevel('cilindro'));
+    document.getElementById('btn-stadium-gasometro').addEventListener('click', () => selectStadiumLevel('gasometro'));
 
     const zoomSlider = document.getElementById('zoom-slider');
     zoomSlider.addEventListener('input', (event) => {
         camera.zoom = parseFloat(event.target.value);
         camera.updateProjectionMatrix();
     });
+
+    // --- NUEVO: Eventos para el menú de Patagonia Games ---
+    document.getElementById('btn-patagonia').addEventListener('click', showPatagoniaScreen);
+    document.getElementById('btn-close-patagonia').addEventListener('click', hidePatagoniaScreen);
+
+    // --- NUEVO: Eventos para la pantalla de desbloqueo ---
+    document.getElementById('btn-enter-code').addEventListener('click', promptForUnlockCode);
+    document.getElementById('btn-close-unlock').addEventListener('click', hideUnlockScreen);
 }
 
-function selectLevel(level) {
+function selectWorld(worldNum) {
     isTestWorld = false;
-    currentLevel = level;
-    document.getElementById('level-select-container').classList.add('hidden');
+    currentWorld = worldNum;
+    currentLevelInWorld = 1; // Siempre empezamos en el nivel 1 del mundo seleccionado
+
+    // Ocultar botones de mundo y mostrar instrucción de personaje
+    document.getElementById('world-select-container').classList.add('hidden');
     document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
+
+    // Mostrar los personajes para poder empezar
+    menuCerdo.visible = true;
+    menuGallina.visible = true;
+}
+
+function updateWorldButtons() {
+    for (let i = 1; i <= 5; i++) {
+        const btn = document.getElementById(`btn-world-${i}`);
+        if (btn) {
+            btn.disabled = i > maxUnlockedWorld;
+        }
+    }
+}
+
+function unlockNextWorld() {
+    if (maxUnlockedWorld < 5) {
+        maxUnlockedWorld++;
+        localStorage.setItem('maxUnlockedWorld', maxUnlockedWorld);
+        updateWorldButtons();
+    }
 }
 
 function selectTestWorld() {
-    const userCode = prompt("Ingresa el código para acceder al mapa de pruebas:");
-    if (userCode === "1234") {
-        isTestWorld = true;
-        document.getElementById('level-select-container').classList.add('hidden');
-        document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
-    } else if (userCode !== null) { // Si el usuario escribió algo pero es incorrecto
-        alert("Código incorrecto.");
+    // Cambiar la vista de selección de nivel a selección de estadio
+    document.getElementById('world-select-container').classList.add('hidden'); // CORRECCIÓN: Ocultar el contenedor de mundos
+    document.getElementById('stadium-select-container').classList.remove('hidden');
+    document.getElementById('menu-instruction-text').textContent = 'Selecciona una cancha';
+
+    // Ocultar personajes
+    menuCerdo.visible = false;
+    menuGallina.visible = false;
+
+    // Aplicar layout y hacer visibles los estadios (que ya están cargados)
+    updateMenuStadiumsLayout();
+    for (const key in menuStadiums) { 
+        if (menuStadiums[key]) menuStadiums[key].visible = true; 
     }
+}
+
+function selectStadiumLevel(stadiumName) {
+    isTestWorld = true;
+    selectedStadium = stadiumName;
+    document.getElementById('stadium-select-container').classList.add('hidden');
+    // Ocultar los estadios decorativos y volver a mostrar los personajes para empezar
+    for (const key in menuStadiums) { menuStadiums[key].visible = false; }
+    menuCerdo.visible = true;
+    menuGallina.visible = true;
+    document.getElementById('menu-instruction-text').textContent = 'Ahora, haz clic en un personaje';
 }
 
 
@@ -1231,15 +1677,99 @@ function playSound(sound) {
 // Nueva función para limpiar y construir el mundo según el nivel
 function setupWorldForLevel() {
     // 1. Limpiar completamente el mundo del juego
-    while(worldGroup.children.length > 0){ 
-        worldGroup.remove(worldGroup.children[0]); 
+    while(worldGroup.children.length > 0){
+        worldGroup.remove(worldGroup.children[0]);
     }
     vehicles = [];
     lanes = [];
+    lodObjects = [];
 
     // 2. Regenerar el mapa y el escenario para el nivel actual
-    const mapDepth = currentLevel < 3 ? currentLevel * 10 * CONFIG.laneWidth : ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth;
     generateMap();
+}
+
+// --- NUEVO: Funciones para mostrar/ocultar la pantalla de información de Patagonia Games ---
+
+function showPatagoniaScreen() {
+    const patagoniaScreen = document.getElementById('patagonia-screen');
+    const patagoniaText = document.getElementById('patagonia-info-text');
+
+    // --- EDITAR AQUÍ EL TEXTO DEL CARTEL ---
+    // Usamos innerHTML para poder dar estilo a partes específicas del texto.
+    const mainText = "Somos PATAGONIA GAMES hacemos desarrollo indie. Nuestra misión es simple: acercar el entretenimiento a donde estés. Capacidad técnica y Control de calidad para crear títulos que sobreviven a cualquier hardware, desde juegos web hasta experiencias AA. Talento argentino exportando diversión.";
+    
+    // Texto de donación con el alias animado
+    const donationText = "Podes aportar a nuestro alias <span class='alias-highlight'>patagonia.games</span>";
+    
+    patagoniaText.innerHTML = mainText + "<br><br>" + donationText;
+    patagoniaScreen.classList.remove('hidden');
+
+    // Ocultar el resto de la UI del menú para que no se solape
+    document.getElementById('menu-screen').classList.add('hidden');
+    document.getElementById('patagonia-button-container').classList.add('hidden');
+    document.getElementById('character-container').classList.add('hidden'); // Ocultar personajes también
+}
+
+function hidePatagoniaScreen() {
+    document.getElementById('patagonia-screen').classList.add('hidden');
+
+    // Volver a mostrar la UI del menú principal
+    document.getElementById('menu-screen').classList.remove('hidden');
+    document.getElementById('patagonia-button-container').classList.remove('hidden');
+    document.getElementById('character-container').classList.remove('hidden');
+}
+
+// --- NUEVO: Lógica para desbloquear el mundo de pruebas ---
+
+function handleTestWorldClick() {
+    if (isTestWorldUnlocked) {
+        selectTestWorld();
+    } else {
+        showUnlockScreen();
+    }
+}
+
+function showUnlockScreen() {
+    const unlockScreen = document.getElementById('unlock-screen');
+    const unlockText = document.getElementById('unlock-info-text');
+
+    // Texto con el alias animado
+    const infoText = "Para desbloquear el mundo libre, puedes aportar a nuestro alias <span class='alias-highlight'>patagonia.games</span>.";
+    unlockText.innerHTML = infoText;
+    
+    unlockScreen.classList.remove('hidden');
+
+    // Ocultar la UI del menú principal
+    document.getElementById('menu-screen').classList.add('hidden');
+    document.getElementById('patagonia-button-container').classList.add('hidden');
+    document.getElementById('character-container').classList.add('hidden');
+}
+
+function hideUnlockScreen() {
+    document.getElementById('unlock-screen').classList.add('hidden');
+
+    // Volver a mostrar la UI del menú principal
+    document.getElementById('menu-screen').classList.remove('hidden');
+    document.getElementById('patagonia-button-container').classList.remove('hidden');
+    document.getElementById('character-container').classList.remove('hidden');
+}
+
+function promptForUnlockCode() {
+    const code = prompt("Introduzca el código de desbloqueo:");
+    // Comprobar si el código es correcto (ignorando mayúsculas/minúsculas y espacios)
+    if (code && code.trim().toUpperCase() === "MLPMQTP") {
+        alert("¡Mundo de pruebas desbloqueado!");
+        isTestWorldUnlocked = true;
+        hideUnlockScreen();
+        selectTestWorld(); // Proceder a la selección de estadio
+    } else if (code !== null) { // Solo mostrar alerta si el usuario no presionó "Cancelar"
+        alert("Código incorrecto.");
+    }
+}
+
+function finishGameAndUnlockAll() {
+    localStorage.setItem('tempUnlockAll', 'true'); // Activar flag temporal
+    window.location.reload();
 }
 
 
@@ -1251,6 +1781,7 @@ function startGame(animal) {
     document.getElementById('menu-screen').classList.add('hidden');
     document.getElementById('character-container').classList.add('hidden');
     document.getElementById('zoom-control-container').classList.remove('hidden');
+    document.getElementById('patagonia-button-container').classList.add('hidden'); // Ocultar al empezar a jugar
     document.getElementById('controls').classList.remove('hidden');
     document.getElementById('btn-restart-to-menu').classList.remove('hidden');
 
@@ -1298,20 +1829,31 @@ function winGame() {
     playerCoins += 10;
     document.getElementById('coin-text').textContent = playerCoins;
 
-    // Lógica para mostrar solo las recompensas aplicables
-    const bocaShirtButton = document.getElementById('btn-skin-boca');
-    const riverShirtButton = document.getElementById('btn-skin-river');
+    // Resetear visibilidad de botones por si acaso
+    document.getElementById('btn-next-level').classList.remove('hidden');
+    document.getElementById('btn-finish-game').classList.add('hidden');
 
-    if (currentAnimalType === 'cerdo') {
-        bocaShirtButton.style.display = 'inline-block';
-        riverShirtButton.style.display = 'none';
-    } else if (currentAnimalType === 'gallina') {
-        bocaShirtButton.style.display = 'none';
-        riverShirtButton.style.display = 'inline-block';
+    // Lógica de progresión de niveles y mundos
+    if (currentLevelInWorld === 1) {
+        // Ganó el nivel 1, ahora pasa al nivel 2 del mismo mundo
+        document.getElementById('btn-next-level').textContent = `Ir al Nivel 2 del Mundo ${currentWorld}`;
+    } else { // Ganó el nivel 2
+        if (currentWorld < 5) {
+            // Desbloquear el siguiente mundo si tiene suficientes monedas
+            if (playerCoins >= 20) {
+                document.getElementById('btn-next-level').textContent = `Desbloquear Mundo ${currentWorld + 1} (20 monedas)`;
+            } else {
+                document.getElementById('btn-next-level').textContent = `Faltan monedas para Mundo ${currentWorld + 1}`;
+                document.getElementById('btn-next-level').disabled = true;
+            }
+        } else {
+            // Juego completado
+            document.getElementById('btn-next-level').classList.add('hidden');
+            document.getElementById('btn-finish-game').classList.remove('hidden');
+        }
     }
     
     // Actualizar el texto del botón del siguiente nivel
-    document.getElementById('btn-next-level').textContent = `Avanzar al Nivel ${currentLevel + 1}`;
 
     document.getElementById('character-container').classList.add('hidden'); // Ocultar personajes del menú
     document.getElementById('zoom-control-container').classList.add('hidden');
@@ -1322,8 +1864,22 @@ function winGame() {
 }
 
 function goToNextLevel() {
-    currentLevel++;
-    resetGame(true); // Llama a resetGame indicando que es para el siguiente nivel
+    if (currentLevelInWorld === 1) {
+        currentLevelInWorld = 2;
+        resetGame(true);
+    } else { // Estaba en el nivel 2
+        if (playerCoins >= 20) {
+            playerCoins -= 20; // Gastar monedas
+            document.getElementById('coin-text').textContent = playerCoins;
+            currentWorld++;
+            currentLevelInWorld = 1;
+            unlockNextWorld();
+            resetGame(true);
+        } else {
+            // No debería poderse hacer clic, pero por si acaso.
+            alert("¡No tienes suficientes monedas!");
+        }
+    }
 }
 
 function applySkin(skinName) {
@@ -1339,18 +1895,8 @@ function resetGame(isNextLevel = false) {
         window.location.reload();
         return;
     }
-    // 1. Limpiar completamente el mundo del juego
-    while(worldGroup.children.length > 0){ 
-        worldGroup.remove(worldGroup.children[0]); 
-    }
-    vehicles = [];
-    lanes = [];
-
-    // 2. Regenerar el mapa y el escenario para el nivel actual
-    const mapDepth = currentLevel < 3 ? currentLevel * 10 * CONFIG.laneWidth : ((currentLevel - 2) * 12 * CONFIG.laneWidth) + CONFIG.laneWidth;
-    generateMap();
-
     document.getElementById('reward-screen').classList.add('hidden');
+    document.getElementById('btn-next-level').disabled = false;
     document.getElementById('game-over-screen').querySelector('h2').textContent = "¡JUEGO TERMINADO!"; // Resetea el mensaje
     document.getElementById('game-over-screen').classList.add('hidden');
     
@@ -1359,6 +1905,9 @@ function resetGame(isNextLevel = false) {
     camera.zoom = 1; // Resetea el zoom de la cámara
     document.getElementById('controls').classList.remove('hidden');
     document.getElementById('zoom-control-container').classList.remove('hidden');
+
+    // Limpiar y regenerar el mundo para el nuevo nivel
+    setupWorldForLevel();
 
     // 1. Resetear posiciones
     targetPosition = { x: 0, z: 0 };

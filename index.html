@@ -8,6 +8,11 @@
 </head>
 <body>
 
+    <!-- Pantalla de Intro/Carga -->
+    <div id="intro-screen" class="ui-screen">
+        <h1 id="intro-title">CROSSY AIRES</h1>
+    </div>
+
     <div id="game-container"></div>
     <div id="character-container"></div>
 
@@ -21,11 +26,54 @@
             <h1>CROSSY AIRES</h1>
             <p id="menu-instruction-text" class="menu-instruction">Selecciona un nivel para empezar</p>
         </div>
-        <div id="level-select-container">
-            <button id="btn-level-1" class="btn">Nivel 1</button>
-            <button id="btn-level-2" class="btn">Nivel 2</button>
-            <button id="btn-level-3" class="btn">Nivel 3</button>
-            <button id="btn-test-world" class="btn">Prueba</button>
+        <!-- NUEVO: Contenedor de selección de mundos -->
+        <div id="world-select-container" class="world-select">
+            <button id="btn-world-1" class="btn btn-world">Mundo 1: 9 de Julio</button>
+            <button id="btn-world-2" class="btn btn-world" disabled>Mundo 2: Ciudad Universitaria</button>
+            <button id="btn-world-3" class="btn btn-world" disabled>Mundo 3: Avellaneda</button>
+            <button id="btn-world-4" class="btn btn-world" disabled>Mundo 4: La Boca</button>
+            <button id="btn-world-5" class="btn btn-world" disabled>Mundo 5: Bajo Flores</button>
+            <button id="btn-test-world" class="btn">Canchas de futbol</button>
+        </div>
+        <div id="stadium-select-container" class="hidden">
+            <div class="stadium-row">
+                <div class="stadium-item">
+                    <button id="btn-stadium-monumental" class="btn">Monumental</button>
+                </div>
+                <div class="stadium-item">
+                    <button id="btn-stadium-bombonera" class="btn">Bombonera</button>
+                </div>
+            </div>
+            <div class="stadium-row bottom-row">
+                <div class="stadium-item">
+                    <button id="btn-stadium-cilindro" class="btn">Cilindro</button>
+                </div>
+                <div class="stadium-item">
+                    <button id="btn-stadium-gasometro" class="btn">Gasómetro</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Botón de Patagonia Games en la esquina -->
+    <div id="patagonia-button-container">
+        <button id="btn-patagonia" class="btn">Patagonia Games</button>
+    </div>
+
+    <!-- Pantalla de información de Patagonia Games -->
+    <div id="patagonia-screen" class="ui-screen hidden">
+        <div class="patagonia-info-panel">
+            <p id="patagonia-info-text"></p>
+            <button id="btn-close-patagonia" class="btn">Cerrar</button>
+        </div>
+    </div>
+
+    <!-- NUEVO: Pantalla para desbloquear el mundo de pruebas -->
+    <div id="unlock-screen" class="ui-screen hidden">
+        <div class="unlock-info-panel">
+            <p id="unlock-info-text"></p>
+            <button id="btn-enter-code" class="btn">Introduzca Código</button>
+            <button id="btn-close-unlock" class="btn restart">Cerrar</button>
         </div>
     </div>
 
@@ -39,6 +87,7 @@
         </div>
         <div class="action-buttons">
             <button id="btn-next-level" class="btn">Avanzar al Nivel 2</button>
+            <button id="btn-finish-game" class="btn hidden">Volver al Menú Principal</button>
             <button id="btn-reset-reward" class="btn restart">Jugar de nuevo</button>
         </div>
     </div>
