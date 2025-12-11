@@ -2,7 +2,8 @@
 const CONFIG = {
     laneCount: 8, // 4 carriles ida + 4 vuelta
     laneWidth: 50,
-    speedFactor: 1.5, // Multiplicador de velocidad global (aumentado)
+    /* --- VELOCIDAD GLOBAL (Afecta a todo el juego) --- */
+    speedFactor: 1.5, // Cambia este valor para hacer todo el juego más rápido o lento
     colors: {
         grass: 0x4caf50,
         road: 0x333333,
@@ -411,12 +412,14 @@ function generateRichieriMap(levelInWorld) {
     // El nivel 1 y 2 ahora son estructuralmente iguales, solo cambia la velocidad.
     const isLevel2 = (levelInWorld === 2);
 
-    // --- Velocidad de los autos ---
-    // Puedes ajustar estos valores para cambiar la dificultad.
-    // speedMultiplierLevel1: Velocidad para el nivel 1 de cada mundo.
-    // speedMultiplierLevel2: Velocidad para el nivel 2 de cada mundo (más rápido).
+    /* -------------------------------------------------------------------------- */
+    /*        CONFIGURACIÓN DE VELOCIDAD - AUTOPISTA (Mundos 1, 3, 4, 5)          */
+    /* -------------------------------------------------------------------------- */
+    // Ajusta estos valores manualmente para cambiar la dificultad:
     const speedMultiplierLevel1 = 1.0;
-    const speedMultiplierLevel2 = 5.7; // Aumentado para que el cambio sea más notorio
+    const speedMultiplierLevel2 = 2.5; 
+    /* -------------------------------------------------------------------------- */
+
     const speedMultiplier = isLevel2 ? speedMultiplierLevel2 : speedMultiplierLevel1;
 
     // --- Cantidad de autos ---
@@ -547,8 +550,15 @@ function generateCiudadUniversitariaMap() {
     // --- AJUSTES DE DIFICULTAD POR NIVEL (APLICADO A C.U.) ---
     // Se unifica la estructura de Nivel 1 y 2. La dificultad ahora solo varía por la velocidad.
     const isLevel2 = (currentLevelInWorld === 2);
+
+    /* -------------------------------------------------------------------------- */
+    /*        CONFIGURACIÓN DE VELOCIDAD - CIUDAD UNIVERSITARIA (Mundo 2)         */
+    /* -------------------------------------------------------------------------- */
+    // Ajusta estos valores manualmente para cambiar la dificultad:
     const speedMultiplierLevel1 = 1.0;
-    const speedMultiplierLevel2 = 1.7; // Misma velocidad aumentada que en otros mundos.
+    const speedMultiplierLevel2 = 1.1; 
+    /* -------------------------------------------------------------------------- */
+
     const speedMultiplier = isLevel2 ? speedMultiplierLevel2 : speedMultiplierLevel1;
     const carsPerLane = 2; // Máximo 2 autos por carril para optimizar.
 
